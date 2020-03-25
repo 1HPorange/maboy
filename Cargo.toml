@@ -1,0 +1,20 @@
+[package]
+name = "maboy_windows"
+version = "0.1.0"
+authors = ["Markus Webel <m@rkus.online>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+maboy = { path = "maboy" }
+log = "0.4"
+env_logger = "0.7"
+bitflags = "1.2"
+winapi = { version = "0.3", features = ["libloaderapi", "winuser", "errhandlingapi", "windef", "minwindef", 
+    "d3d11", "d3dcommon", "dxgi1_2", "synchapi", "handleapi", "profileapi", "xinput", "commdlg"] }
+wio = "0.2" # Because of their pretty ComPtr implementation
+
+# Uncomment if you want debug symbols in your release build (useful for profiling)
+# [profile.release]
+# debug = true
