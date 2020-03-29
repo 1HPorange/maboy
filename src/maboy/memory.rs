@@ -12,7 +12,7 @@ impl Memory {
             .iter()
             .copied()
             .chain(std::iter::repeat(0u8))
-            .take(std::u16::MAX as usize)
+            .take(std::u16::MAX as usize + 1)
             .collect::<Vec<_>>()
             .into_boxed_slice();
 
