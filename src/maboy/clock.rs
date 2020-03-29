@@ -5,9 +5,7 @@ impl Clock {
         Clock
     }
 
-    pub async fn cycle(&self) {
-        unimplemented!()
-    }
+    pub async fn cycle(&self) {}
 
     pub async fn cycles(&self, count: u8) {
         for _ in 0..count {
