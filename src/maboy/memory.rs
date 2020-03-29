@@ -8,13 +8,47 @@ pub struct Memory(Box<[u8]>);
 
 impl Memory {
     pub fn new() -> Memory {
-        let mem = BIOS
+        let mut mem = BIOS
             .iter()
             .copied()
             .chain(std::iter::repeat(0u8))
             .take(std::u16::MAX as usize)
             .collect::<Vec<_>>()
             .into_boxed_slice();
+
+        // Initial values according to bgb.bircd.org/pandocs.htm#powerupsequence
+        mem[0xFF05] = 0x00;
+        mem[0xFF06] = 0x00;
+        mem[0xFF07] = 0x00;
+        mem[0xFF10] = 0x80;
+        mem[0xFF11] = 0xBF;
+        mem[0xFF12] = 0xF3;
+        mem[0xFF14] = 0xBF;
+        mem[0xFF16] = 0x3F;
+        mem[0xFF17] = 0x00;
+        mem[0xFF19] = 0xBF;
+        mem[0xFF1A] = 0x7F;
+        mem[0xFF1B] = 0xFF;
+        mem[0xFF1C] = 0x9F;
+        mem[0xFF1E] = 0xBF;
+        mem[0xFF20] = 0xFF;
+        mem[0xFF21] = 0x00;
+        mem[0xFF22] = 0x00;
+        mem[0xFF23] = 0xBF;
+        mem[0xFF24] = 0x77;
+        mem[0xFF25] = 0xF3;
+        mem[0xFF26] = 0xF1;
+        mem[0xFF40] = 0x91;
+        mem[0xFF42] = 0x00;
+        mem[0xFF43] = 0x00;
+        mem[0xFF45] = 0x00;
+        mem[0xFF47] = 0xFC;
+        mem[0xFF48] = 0xFF;
+        mem[0xFF49] = 0xFF;
+        mem[0xFF4A] = 0x00;
+        mem[0xFF4B] = 0x00;
+        mem[0xFFFF] = 0x00;
+
         Memory(mem)
     }
 

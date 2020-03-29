@@ -2643,7 +2643,7 @@ struct Registers([u8; 9]);
 
 impl Registers {
     fn new() -> Registers {
-        // Initial values fropm bgb.bircd.org/pandocs.htm#powerupsequence
+        // Initial values according to bgb.bircd.org/pandocs.htm#powerupsequence
         Registers([0x01, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D, 0xFF, 0xFE])
     }
 
@@ -2684,6 +2684,7 @@ struct Flags {
 
 impl Flags {
     fn new() -> Flags {
+        // Initial values according to bgb.bircd.org/pandocs.htm#powerupsequence
         Flags {
             z: true,
             n: false,
