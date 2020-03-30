@@ -9,3 +9,4 @@ edition = "2018"
 [dependencies]
 static_assertions = "1.1.0"
 futures = "0.3"
+arrayvec = "0.5"

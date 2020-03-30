@@ -16,8 +16,8 @@ pub struct CPU {
     reg: Registers,
     pc: u16,
     flags: Flags,
-    interrupts_enabled: bool,
-    mem: Memory, // TODO: Think about if this should sit here
+    interrupts_enabled: bool, // TODO: Remove, move where it belongs (0xFFFF)
+    mem: Memory,              // TODO: Think about if this should sit here
 }
 
 impl CPU {
@@ -1417,6 +1417,9 @@ impl CPU {
             }
             EI => {
                 clock.cycles(4).await;
+                // TODO: According to https://www.reddit.com/r/EmuDev/comments/7rm8l2/game_boy_vblank_interrupt_confusion/
+                // Interrupts are enabled on after the instruction AFTER this one, not immediately
+                // TODO: Check if the same is true for DI
                 self.interrupts_enabled = true;
             }
             NOT_USED_8 => {
