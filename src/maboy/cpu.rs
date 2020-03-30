@@ -44,13 +44,13 @@ impl CPU {
 
     fn read8(&mut self) -> Result<u8, MemoryAccessError> {
         let res = self.mem.get8(self.pc)?;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         Ok(res)
     }
 
     fn read16(&mut self) -> Result<u16, MemoryAccessError> {
         let res = self.mem.get16(self.pc)?;
-        self.pc += 2;
+        self.pc = self.pc.wrapping_add(2);
         Ok(res)
     }
 
@@ -241,7 +241,10 @@ impl CPU {
 
     fn jmpr(&mut self) -> Result<(), MemoryAccessError> {
         // TODO: Investigate if we should convert pc to i16
-        self.pc = (self.pc as i16 + self.read8()? as i16) as u16;
+
+        let offset: i8 = unsafe { std::mem::transmute(self.read8()?) };
+        // This cast works as offset is in 2s complement
+        self.pc = self.pc.wrapping_add(offset as u16);
         Ok(())
     }
 
