@@ -1,15 +1,17 @@
-pub struct Clock;
+use std::future::Future;
 
-impl Clock {
-    pub fn new() -> Clock {
-        Clock
+const CYCLES_PER_SEC: u32 = 4_194_304;
+pub const MCYCLES_PER_SEC: u32 = CYCLES_PER_SEC / 4;
+
+/// For now, this yields once every 4 ticks (machine cycle)
+pub async fn ticks(n: u8) {
+    for _ in 0..n / 4 {
+        futures::pending!()
     }
+}
 
-    pub async fn cycle(&self) {}
+pub struct DummyWaker;
 
-    pub async fn cycles(&self, count: u8) {
-        for _ in 0..count {
-            self.cycle().await;
-        }
-    }
+impl futures::task::ArcWake for DummyWaker {
+    fn wake_by_ref(arc_self: &std::sync::Arc<Self>) {}
 }

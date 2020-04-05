@@ -1,8 +1,7 @@
 #![deny(unused_must_use)]
 
-use super::clock::Clock;
-use super::error::Error;
-use super::memory::{Memory, MemoryAccessError};
+use super::clock;
+use super::mmu::MMU;
 use static_assertions as sa;
 use std::ops::{Index, IndexMut};
 
@@ -12,12 +11,13 @@ use std::ops::{Index, IndexMut};
 // > So Nintendo started to tell developers to add a NOP always after a STOP.
 const SKIP_INSTR_AFTER_STOP: bool = true;
 
+#[derive(Debug)]
 pub struct CPU {
     reg: Registers,
     pc: u16,
     flags: Flags,
-    interrupts_enabled: bool, // TODO: Remove, move where it belongs (0xFFFF)
-    mem: Memory,              // TODO: Think about if this should sit here
+    /// In literature, this is sometimes called the IME flag (Interrupt Master Enable)
+    interrupts_enabled: bool,
 }
 
 impl CPU {
@@ -27,31 +27,43 @@ impl CPU {
             reg: Registers::new(),
             pc: 0,
             flags: Flags::new(),
-            interrupts_enabled: false,
-            mem: Memory::new(),
+            interrupts_enabled: true,
         }
     }
 
-    pub async fn run(&mut self, clock: &Clock) -> Result<(), MemoryAccessError> {
+    pub async fn run(&mut self, mmu: &mut MMU<'_>) {
         loop {
-            // Safe transmute since we have u8::MAX instructions
-            sa::const_assert_eq!(Instruction::RST_38H as u8, std::u8::MAX);
-            let instruction: Instruction = unsafe { std::mem::transmute(self.read8()?) };
+            // If we need to handle an interrupt, we skip normal instruction decoding
+            let interrupts_requested = mmu.read8(0xFF0F) & mmu.read8(0xFFFF) & 0x1F;
+            if self.interrupts_enabled && interrupts_requested != 0 {
+                self.decode_interrupt(mmu, interrupts_requested);
+                clock::ticks(4).await; // TODO: Research this timing
+            } else {
+                // Safe transmute since we have u8::MAX instructions
+                sa::const_assert_eq!(Instruction::RST_38H as u8, std::u8::MAX);
+                let instruction: Instruction = unsafe { std::mem::transmute(self.read8(mmu)) };
 
-            self.execute(clock, instruction).await?;
+                // println!(
+                //     "Executing {:?} with PC now at {:#06X}",
+                //     instruction, self.pc
+                // );
+                // dbg!(&self);
+
+                self.execute(instruction, mmu).await;
+            }
         }
     }
 
-    fn read8(&mut self) -> Result<u8, MemoryAccessError> {
-        let res = self.mem.get8(self.pc)?;
+    fn read8(&mut self, mmu: &MMU<'_>) -> u8 {
+        let val = mmu.read8(self.pc);
         self.pc = self.pc.wrapping_add(1);
-        Ok(res)
+        val
     }
 
-    fn read16(&mut self) -> Result<u16, MemoryAccessError> {
-        let res = self.mem.get16(self.pc)?;
+    fn read16(&mut self, mmu: &MMU<'_>) -> u16 {
+        let val = mmu.read16(self.pc);
         self.pc = self.pc.wrapping_add(2);
-        Ok(res)
+        val
     }
 
     async fn add_hl(&mut self, addend: R16) {
@@ -76,36 +88,37 @@ impl CPU {
     // num_traits could avoid some code duplication here, but we just avoid any
     // potential overhead
 
-    fn inc8<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
-        let target = target.into().into_ref(self)?;
+    fn inc8<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        let h = (*target & 0b1111) == 0b1111;
+        let h = (old & 0b1111) == 0b1111;
 
-        *target = target.wrapping_add(1);
+        let new = old.wrapping_add(1);
 
-        self.flags[Flag::Z] = *target == 0;
+        target.write(self, mmu, new);
+
+        self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = h;
-
-        Ok(())
     }
 
-    fn dec8<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
-        let target = target.into().into_ref(self)?;
+    fn dec8<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        let h = *target == 0;
+        let h = old == 0;
 
-        *target = target.wrapping_sub(1);
+        let new = old.wrapping_sub(1);
 
-        self.flags[Flag::Z] = *target == 0;
+        target.write(self, mmu, new);
+
+        self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = true;
         self.flags[Flag::H] = h;
-
-        Ok(())
     }
 
-    fn add<O: Into<Operand>>(&mut self, n: O) -> Result<(), MemoryAccessError> {
-        let n = n.into().into_val(self)?;
+    fn add(&mut self, n: u8) {
         let target = self.reg.r8_mut(R8::A);
 
         let (sum, c) = target.overflowing_add(n);
@@ -122,12 +135,9 @@ impl CPU {
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = (overflow & 0b10000) != 0;
         self.flags[Flag::C] = c;
-
-        Ok(())
     }
 
-    fn adc<O: Into<Operand>>(&mut self, n: O) -> Result<(), MemoryAccessError> {
-        let n = n.into().into_val(self)?;
+    fn adc(&mut self, n: u8) {
         let target = self.reg.r8_mut(R8::A);
 
         let (mut sum, mut c) = target.overflowing_add(n);
@@ -150,17 +160,13 @@ impl CPU {
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = (overflow & 0b10000) != 0;
         self.flags[Flag::C] = c;
-
-        Ok(())
     }
 
-    fn sub<O: Into<Operand>>(&mut self, n: O) -> Result<(), MemoryAccessError> {
-        *self.reg.r8_mut(R8::A) = self.cp(n)?;
-        Ok(())
+    fn sub(&mut self, n: u8) {
+        *self.reg.r8_mut(R8::A) = self.cp(n);
     }
 
-    fn sbc<O: Into<Operand>>(&mut self, n: O) -> Result<(), MemoryAccessError> {
-        let mut n = n.into().into_val(self)?;
+    fn sbc(&mut self, mut n: u8) {
         let target = self.reg.r8_mut(R8::A);
 
         if self.flags[Flag::C] {
@@ -176,13 +182,10 @@ impl CPU {
         self.flags[Flag::N] = true;
         self.flags[Flag::H] = h;
         self.flags[Flag::C] = c;
-
-        Ok(())
     }
 
     /// Returns A-n, which can be used to implement SUB_n
-    fn cp<O: Into<Operand>>(&mut self, n: O) -> Result<u8, MemoryAccessError> {
-        let n = n.into().into_val(self)?;
+    fn cp(&mut self, n: u8) -> u8 {
         let reference = self.reg.r8(R8::A);
 
         let h = n > reference;
@@ -194,11 +197,10 @@ impl CPU {
         self.flags[Flag::H] = h;
         self.flags[Flag::C] = c;
 
-        Ok(diff)
+        diff
     }
 
-    fn and<O: Into<Operand>>(&mut self, n: O) -> Result<(), MemoryAccessError> {
-        let n = n.into().into_val(self)?;
+    fn and(&mut self, n: u8) {
         let target = self.reg.r8_mut(R8::A);
 
         *target &= n;
@@ -207,12 +209,9 @@ impl CPU {
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = true;
         self.flags[Flag::C] = false;
-
-        Ok(())
     }
 
-    fn xor<O: Into<Operand>>(&mut self, n: O) -> Result<(), MemoryAccessError> {
-        let n = n.into().into_val(self)?;
+    fn xor(&mut self, n: u8) {
         let target = self.reg.r8_mut(R8::A);
 
         *target ^= n;
@@ -221,12 +220,9 @@ impl CPU {
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = false;
-
-        Ok(())
     }
 
-    fn or<O: Into<Operand>>(&mut self, n: O) -> Result<(), MemoryAccessError> {
-        let n = n.into().into_val(self)?;
+    fn or(&mut self, n: u8) {
         let target = self.reg.r8_mut(R8::A);
 
         *target |= n;
@@ -235,148 +231,137 @@ impl CPU {
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = false;
-
-        Ok(())
     }
 
-    fn jmpr(&mut self) -> Result<(), MemoryAccessError> {
-        // TODO: Investigate if we should convert pc to i16
-
-        let offset: i8 = unsafe { std::mem::transmute(self.read8()?) };
+    fn jmpr(&mut self, offset: u8) {
+        let offset: i8 = unsafe { std::mem::transmute(offset) };
         // This cast works as offset is in 2s complement
         self.pc = self.pc.wrapping_add(offset as u16);
-        Ok(())
     }
 
-    fn pop(&mut self) -> Result<u16, MemoryAccessError> {
+    fn pop(&mut self, mmu: &MMU) -> u16 {
         let sp = self.reg.r16_mut(R16::SP);
-        let val = self.mem.get16(*sp)?;
+        let val = mmu.read16(*sp);
         *sp = sp.wrapping_add(2);
-        Ok(val)
+        val
     }
 
-    fn push(&mut self, val: u16) -> Result<(), MemoryAccessError> {
+    fn push(&mut self, mmu: &mut MMU, val: u16) {
         let sp = self.reg.r16_mut(R16::SP);
-        *self.mem.get16_mut(*sp)? = val;
+        mmu.write16(*sp, val);
         *sp = sp.wrapping_sub(2);
-        Ok(())
     }
 
-    async fn execute(
-        &mut self,
-        clock: &Clock,
-        instruction: Instruction,
-    ) -> Result<(), MemoryAccessError> {
+    async fn execute(&mut self, instruction: Instruction, mmu: &mut MMU<'_>) {
         use Instruction::*;
         use R16::*;
         use R8::*;
 
-        return Ok(match instruction {
+        match instruction {
             NOP => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 panic!("You did it! You reached NOP!")
             }
             LD_BC_d16 => {
-                clock.cycles(12).await;
-                *self.reg.r16_mut(BC) = self.read16()?;
+                clock::ticks(12).await;
+                *self.reg.r16_mut(BC) = self.read16(mmu);
             }
             LD_xBCx_A => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(BC))? = self.reg.r8(A);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(BC), self.reg.r8(A));
             }
             INC_BC => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 let bc = self.reg.r16_mut(BC);
                 *bc = bc.wrapping_add(1);
             }
             INC_B => {
-                clock.cycles(4).await;
-                self.inc8(B)?;
+                clock::ticks(4).await;
+                self.inc8(mmu, B);
             }
             DEC_B => {
-                clock.cycles(4).await;
-                self.dec8(B)?;
+                clock::ticks(4).await;
+                self.dec8(mmu, B);
             }
             LD_B_d8 => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(B) = self.read8()?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(B) = self.read8(mmu);
             }
             RLCA => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 let target = self.reg.r8_mut(A);
                 self.flags[Flag::C] = (*target & 0b1000_0000) != 0;
                 *target = target.rotate_left(1);
             }
             LD_xa16x_SP => {
-                clock.cycles(20).await;
-                let addr = self.read16()?;
-                *self.mem.get16_mut(addr)? = self.reg.r16(SP);
+                clock::ticks(20).await;
+                mmu.write16(self.read16(mmu), self.reg.r16(SP));
             }
             ADD_HL_BC => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 self.add_hl(BC).await;
             }
             LD_A_xBCx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(A) = self.mem.get8(self.reg.r16(BC))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(A) = mmu.read8(self.reg.r16(BC));
             }
             DEC_BC => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 let bc = self.reg.r16_mut(BC);
                 *bc = bc.wrapping_sub(1);
             }
             INC_C => {
-                clock.cycles(4).await;
-                self.inc8(C)?;
+                clock::ticks(4).await;
+                self.inc8(mmu, C);
             }
             DEC_C => {
-                clock.cycles(4).await;
-                self.dec8(C)?;
+                clock::ticks(4).await;
+                self.dec8(mmu, C);
             }
             LD_C_d8 => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(C) = self.read8()?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(C) = self.read8(mmu);
             }
             RRCA => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 let target = self.reg.r8_mut(A);
                 self.flags[Flag::C] = (*target & 1) != 0;
                 *target = target.rotate_right(1);
             }
             STOP => {
                 if SKIP_INSTR_AFTER_STOP {
-                    self.read8()?;
+                    self.read8(mmu);
                 }
                 panic!("Reached STOP instruction");
             }
             LD_DE_d16 => {
-                clock.cycles(12).await;
-                *self.reg.r16_mut(DE) = self.read16()?;
+                clock::ticks(12).await;
+                *self.reg.r16_mut(DE) = self.read16(mmu);
             }
             LD_xDEx_A => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(DE))? = self.reg.r8(A);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(DE), self.reg.r8(A));
             }
             INC_DE => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 let de = self.reg.r16_mut(DE);
                 *de = de.wrapping_add(1);
             }
             INC_D => {
-                clock.cycles(4).await;
-                self.inc8(D)?;
+                clock::ticks(4).await;
+                self.inc8(mmu, D);
             }
             DEC_D => {
-                clock.cycles(4).await;
-                self.dec8(D)?;
+                clock::ticks(4).await;
+                self.dec8(mmu, D);
             }
             LD_D_d8 => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(D) = self.read8()?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(D) = self.read8(mmu);
             }
             RLA => {
                 // Can't us self.rl because it sets the zero flag
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 let target = self.reg.r8_mut(A);
                 let c = self.flags[Flag::C];
                 self.flags[Flag::C] = (*target & 0b1000_0000) != 0;
@@ -386,37 +371,38 @@ impl CPU {
                 }
             }
             JR_r8 => {
-                clock.cycles(12).await;
-                self.jmpr()?;
+                clock::ticks(12).await;
+                let offset = self.read8(mmu);
+                self.jmpr(offset);
             }
             ADD_HL_DE => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 self.add_hl(DE).await;
             }
             LD_A_xDEx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(A) = self.mem.get8(self.reg.r16(DE))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(A) = mmu.read8(self.reg.r16(DE));
             }
             DEC_DE => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 let de = self.reg.r16_mut(DE);
                 *de = de.wrapping_sub(1);
             }
             INC_E => {
-                clock.cycles(4).await;
-                self.inc8(E)?;
+                clock::ticks(4).await;
+                self.inc8(mmu, E);
             }
             DEC_E => {
-                clock.cycles(4).await;
-                self.dec8(E)?;
+                clock::ticks(4).await;
+                self.dec8(mmu, E);
             }
             LD_E_d8 => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(E) = self.read8()?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(E) = self.read8(mmu);
             }
             RRA => {
                 // Can't us self.rr because it sets the zero flag
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 let target = self.reg.r8_mut(A);
                 let c = self.flags[Flag::C];
                 self.flags[Flag::C] = (*target & 0b1) != 0;
@@ -426,43 +412,44 @@ impl CPU {
                 }
             }
             JR_NZ_r8 => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
+                let offset = self.read8(mmu);
                 if !self.flags[Flag::Z] {
-                    clock.cycles(4).await;
-                    self.jmpr()?;
+                    clock::ticks(4).await;
+                    self.jmpr(offset);
                 }
             }
             LD_HL_d16 => {
-                clock.cycles(12).await;
-                *self.reg.r16_mut(HL) = self.read16()?;
+                clock::ticks(12).await;
+                *self.reg.r16_mut(HL) = self.read16(mmu);
             }
             LD_xHLix_A => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.reg.r8(A);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(HL), self.reg.r8(A));
                 let hl = self.reg.r16_mut(HL);
                 *hl = hl.wrapping_add(1);
             }
             INC_HL => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 *self.reg.r16_mut(HL) += 1;
             }
             INC_H => {
-                clock.cycles(4).await;
-                self.inc8(H)?;
+                clock::ticks(4).await;
+                self.inc8(mmu, H);
             }
             DEC_H => {
-                clock.cycles(4).await;
-                self.dec8(H)?;
+                clock::ticks(4).await;
+                self.dec8(mmu, H);
             }
             LD_H_d8 => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(H) = self.read8()?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(H) = self.read8(mmu);
             }
             DAA => {
                 // DAA is kind of infamous for having complicated behaviour
-                // This is why I took the source code from https://forums.nesdev.com/viewtopic.php?t=15944
+                // This is why I took the source code from https://forums.nesdev.com/viewtopic.phpt=15944
 
-                clock.cycles(4).await;
+                clock::ticks(4).await;
 
                 let a = self.reg.r8_mut(A);
 
@@ -490,805 +477,815 @@ impl CPU {
                 self.flags[Flag::H] = false; // h flag is always cleared
             }
             JR_Z_r8 => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
+                let offset = self.read8(mmu);
                 if self.flags[Flag::Z] {
-                    clock.cycles(4).await;
-                    self.jmpr()?;
+                    clock::ticks(4).await;
+                    self.jmpr(offset);
                 }
             }
             ADD_HL_HL => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 self.add_hl(HL).await;
             }
             LD_A_xHLix => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(A) = self.mem.get8(self.reg.r16(HL))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(A) = mmu.read8(self.reg.r16(HL));
                 let hl = self.reg.r16_mut(HL);
                 *hl = hl.wrapping_add(1);
             }
             DEC_HL => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 let hl = self.reg.r16_mut(HL);
                 *hl = hl.wrapping_sub(1);
             }
             INC_L => {
-                clock.cycles(4).await;
-                self.inc8(L)?;
+                clock::ticks(4).await;
+                self.inc8(mmu, L);
             }
             DEC_L => {
-                clock.cycles(4).await;
-                self.dec8(L)?;
+                clock::ticks(4).await;
+                self.dec8(mmu, L);
             }
             LD_L_d8 => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(L) = self.read8()?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(L) = self.read8(mmu);
             }
             CPL => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 let a = self.reg.r8_mut(A);
                 *a = !*a;
                 self.flags[Flag::N] = true;
                 self.flags[Flag::H] = true;
             }
             JR_NC_r8 => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
+                let offset = self.read8(mmu);
                 if !self.flags[Flag::C] {
-                    clock.cycles(4).await;
-                    self.jmpr()?;
+                    clock::ticks(4).await;
+                    self.jmpr(offset);
                 }
             }
             LD_SP_d16 => {
-                clock.cycles(12).await;
-                *self.reg.r16_mut(SP) = self.read16()?;
+                clock::ticks(12).await;
+                *self.reg.r16_mut(SP) = self.read16(mmu);
             }
             LD_xHLdx_A => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.reg.r8(A);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(HL), self.reg.r8(A));
                 let hl = self.reg.r16_mut(HL);
                 *hl = hl.wrapping_sub(1);
             }
             INC_SP => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 let sp = self.reg.r16_mut(SP);
                 *sp = sp.wrapping_add(1);
             }
             INC_xHLx => {
-                clock.cycles(12).await;
-                self.inc8(Operand::HLAddr)?;
+                clock::ticks(12).await;
+                self.inc8(mmu, Operand::HLAddr);
             }
             DEC_xHLx => {
-                clock.cycles(12).await;
-                self.dec8(Operand::HLAddr)?;
+                clock::ticks(12).await;
+                self.dec8(mmu, Operand::HLAddr);
             }
             LD_xHLx_d8 => {
-                clock.cycles(12).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.read8()?;
+                clock::ticks(12).await;
+                mmu.write8(self.reg.r16(HL), self.read8(mmu));
             }
             SCF => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 self.flags[Flag::N] = false;
                 self.flags[Flag::H] = false;
                 self.flags[Flag::C] = true;
             }
             JR_C_r8 => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
+                let offset = self.read8(mmu);
                 if self.flags[Flag::C] {
-                    clock.cycles(4).await;
-                    self.jmpr()?;
+                    clock::ticks(4).await;
+                    self.jmpr(offset);
                 }
             }
             ADD_HL_SP => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 self.add_hl(SP).await;
             }
             LD_A_xHLdx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(A) = self.mem.get8(self.reg.r16(HL))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(A) = mmu.read8(self.reg.r16(HL));
                 let hl = self.reg.r16_mut(HL);
                 *hl = hl.wrapping_sub(1);
             }
             DEC_SP => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 let sp = self.reg.r16_mut(SP);
                 *sp = sp.wrapping_sub(1);
             }
             INC_A => {
-                clock.cycles(4).await;
-                self.inc8(A)?;
+                clock::ticks(4).await;
+                self.inc8(mmu, A);
             }
             DEC_A => {
-                clock.cycles(4).await;
-                self.dec8(A)?;
+                clock::ticks(4).await;
+                self.dec8(mmu, A);
             }
             LD_A_d8 => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(A) = self.read8()?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(A) = self.read8(mmu);
             }
             CCF => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 self.flags[Flag::N] = false;
                 self.flags[Flag::H] = false;
                 self.flags[Flag::C] = !self.flags[Flag::C];
             }
             LD_B_B => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 // *self.reg.r8_mut(B) = self.reg.r8(B);
             }
             LD_B_C => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(B) = self.reg.r8(C);
             }
             LD_B_D => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(B) = self.reg.r8(D);
             }
             LD_B_E => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(B) = self.reg.r8(E);
             }
             LD_B_H => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(B) = self.reg.r8(H);
             }
             LD_B_L => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(B) = self.reg.r8(L);
             }
             LD_B_xHLx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(B) = self.mem.get8(self.reg.r16(HL))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(B) = mmu.read8(self.reg.r16(HL));
             }
             LD_B_A => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(B) = self.reg.r8(A);
             }
             LD_C_B => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(C) = self.reg.r8(B);
             }
             LD_C_C => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 //*self.reg.r8_mut(C) = self.reg.r8(C);
             }
             LD_C_D => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(C) = self.reg.r8(D);
             }
             LD_C_E => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(C) = self.reg.r8(E);
             }
             LD_C_H => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(C) = self.reg.r8(H);
             }
             LD_C_L => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(C) = self.reg.r8(L);
             }
             LD_C_xHLx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(C) = self.mem.get8(self.reg.r16(HL))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(C) = mmu.read8(self.reg.r16(HL));
             }
             LD_C_A => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(C) = self.reg.r8(A);
             }
             LD_D_B => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(D) = self.reg.r8(B);
             }
             LD_D_C => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(D) = self.reg.r8(C);
             }
             LD_D_D => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 // *self.reg.r8_mut(D) = self.reg.r8(D);
             }
             LD_D_E => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(D) = self.reg.r8(E);
             }
             LD_D_H => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(D) = self.reg.r8(H);
             }
             LD_D_L => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(D) = self.reg.r8(L);
             }
             LD_D_xHLx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(D) = self.mem.get8(self.reg.r16(HL))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(D) = mmu.read8(self.reg.r16(HL));
             }
             LD_D_A => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(D) = self.reg.r8(A);
             }
             LD_E_B => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(E) = self.reg.r8(B);
             }
             LD_E_C => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(E) = self.reg.r8(C);
             }
             LD_E_D => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(E) = self.reg.r8(D);
             }
             LD_E_E => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 // *self.reg.r8_mut(E) = self.reg.r8(E);
             }
             LD_E_H => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(E) = self.reg.r8(H);
             }
             LD_E_L => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(E) = self.reg.r8(L);
             }
             LD_E_xHLx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(E) = self.mem.get8(self.reg.r16(HL))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(E) = mmu.read8(self.reg.r16(HL));
             }
             LD_E_A => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(E) = self.reg.r8(A);
             }
             LD_H_B => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(H) = self.reg.r8(B);
             }
             LD_H_C => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(H) = self.reg.r8(C);
             }
             LD_H_D => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(H) = self.reg.r8(D);
             }
             LD_H_E => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(H) = self.reg.r8(E);
             }
             LD_H_H => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 // *self.reg.r8_mut(H) = self.reg.r8(H);
             }
             LD_H_L => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(H) = self.reg.r8(L);
             }
             LD_H_xHLx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(H) = self.mem.get8(self.reg.r16(HL))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(H) = mmu.read8(self.reg.r16(HL));
             }
             LD_H_A => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(H) = self.reg.r8(A);
             }
             LD_L_B => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(L) = self.reg.r8(B);
             }
             LD_L_C => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(L) = self.reg.r8(C);
             }
             LD_L_D => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(L) = self.reg.r8(D);
             }
             LD_L_E => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(L) = self.reg.r8(E);
             }
             LD_L_H => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(L) = self.reg.r8(H);
             }
             LD_L_L => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 // *self.reg.r8_mut(L) = self.reg.r8(L);
             }
             LD_L_xHLx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(L) = self.mem.get8(self.reg.r16(HL))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(L) = mmu.read8(self.reg.r16(HL));
             }
             LD_L_A => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(L) = self.reg.r8(A);
             }
             LD_xHLx_B => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.reg.r8(B);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(HL), self.reg.r8(B));
             }
             LD_xHLx_C => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.reg.r8(C);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(HL), self.reg.r8(C));
             }
             LD_xHLx_D => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.reg.r8(D);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(HL), self.reg.r8(D));
             }
             LD_xHLx_E => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.reg.r8(E);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(HL), self.reg.r8(E));
             }
             LD_xHLx_H => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.reg.r8(H);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(HL), self.reg.r8(H));
             }
             LD_xHLx_L => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.reg.r8(L);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(HL), self.reg.r8(L));
             }
             HALT => {
                 panic!("Reached HALT instruction");
             }
             LD_xHLx_A => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r16(HL))? = self.reg.r8(A);
+                clock::ticks(8).await;
+                mmu.write8(self.reg.r16(HL), self.reg.r8(A));
             }
             LD_A_B => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(A) = self.reg.r8(B);
             }
             LD_A_C => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(A) = self.reg.r8(C);
             }
             LD_A_D => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(A) = self.reg.r8(D);
             }
             LD_A_E => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(A) = self.reg.r8(E);
             }
             LD_A_H => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(A) = self.reg.r8(H);
             }
             LD_A_L => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 *self.reg.r8_mut(A) = self.reg.r8(L);
             }
             LD_A_xHLx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(A) = self.mem.get8(self.reg.r16(HL))?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(A) = mmu.read8(self.reg.r16(HL));
             }
             LD_A_A => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 // self.reg.r8_mut(A) = self.reg.r8(A);
             }
             ADD_A_B => {
-                clock.cycles(4).await;
-                self.add(B)?;
+                clock::ticks(4).await;
+                self.add(self.reg.r8(B));
             }
             ADD_A_C => {
-                clock.cycles(4).await;
-                self.add(C)?;
+                clock::ticks(4).await;
+                self.add(self.reg.r8(C));
             }
             ADD_A_D => {
-                clock.cycles(4).await;
-                self.add(D)?;
+                clock::ticks(4).await;
+                self.add(self.reg.r8(D));
             }
             ADD_A_E => {
-                clock.cycles(4).await;
-                self.add(E)?;
+                clock::ticks(4).await;
+                self.add(self.reg.r8(E));
             }
             ADD_A_H => {
-                clock.cycles(4).await;
-                self.add(H)?;
+                clock::ticks(4).await;
+                self.add(self.reg.r8(H));
             }
             ADD_A_L => {
-                clock.cycles(4).await;
-                self.add(L)?;
+                clock::ticks(4).await;
+                self.add(self.reg.r8(L));
             }
             ADD_A_xHLx => {
-                clock.cycles(8).await;
-                self.add(Operand::HLAddr)?;
+                clock::ticks(8).await;
+                self.add(mmu.read8(self.reg.r16(HL)));
             }
             ADD_A_A => {
-                clock.cycles(4).await;
-                self.add(A)?;
+                clock::ticks(4).await;
+                self.add(self.reg.r8(A));
             }
             ADC_A_B => {
-                clock.cycles(4).await;
-                self.adc(B)?;
+                clock::ticks(4).await;
+                self.adc(self.reg.r8(B));
             }
             ADC_A_C => {
-                clock.cycles(4).await;
-                self.adc(C)?;
+                clock::ticks(4).await;
+                self.adc(self.reg.r8(C));
             }
             ADC_A_D => {
-                clock.cycles(4).await;
-                self.adc(D)?;
+                clock::ticks(4).await;
+                self.adc(self.reg.r8(D));
             }
             ADC_A_E => {
-                clock.cycles(4).await;
-                self.adc(E)?;
+                clock::ticks(4).await;
+                self.adc(self.reg.r8(E));
             }
             ADC_A_H => {
-                clock.cycles(4).await;
-                self.adc(H)?;
+                clock::ticks(4).await;
+                self.adc(self.reg.r8(H));
             }
             ADC_A_L => {
-                clock.cycles(4).await;
-                self.adc(L)?;
+                clock::ticks(4).await;
+                self.adc(self.reg.r8(L));
             }
             ADC_A_xHLx => {
-                clock.cycles(8).await;
-                self.adc(Operand::HLAddr)?;
+                clock::ticks(8).await;
+                self.adc(mmu.read8(self.reg.r16(HL)));
             }
             ADC_A_A => {
-                clock.cycles(4).await;
-                self.adc(A)?;
+                clock::ticks(4).await;
+                self.adc(self.reg.r8(A));
             }
             SUB_B => {
-                clock.cycles(4).await;
-                self.sub(B)?;
+                clock::ticks(4).await;
+                self.sub(self.reg.r8(B));
             }
             SUB_C => {
-                clock.cycles(4).await;
-                self.sub(C)?;
+                clock::ticks(4).await;
+                self.sub(self.reg.r8(C));
             }
             SUB_D => {
-                clock.cycles(4).await;
-                self.sub(D)?;
+                clock::ticks(4).await;
+                self.sub(self.reg.r8(D));
             }
             SUB_E => {
-                clock.cycles(4).await;
-                self.sub(E)?;
+                clock::ticks(4).await;
+                self.sub(self.reg.r8(E));
             }
             SUB_H => {
-                clock.cycles(4).await;
-                self.sub(H)?;
+                clock::ticks(4).await;
+                self.sub(self.reg.r8(H));
             }
             SUB_L => {
-                clock.cycles(4).await;
-                self.sub(L)?;
+                clock::ticks(4).await;
+                self.sub(self.reg.r8(L));
             }
             SUB_xHLx => {
-                clock.cycles(8).await;
-                self.sub(Operand::HLAddr)?;
+                clock::ticks(8).await;
+                self.sub(mmu.read8(self.reg.r16(HL)));
             }
             SUB_A => {
-                clock.cycles(4).await;
-                self.sub(A)?;
+                clock::ticks(4).await;
+                self.sub(self.reg.r8(A));
             }
             SBC_A_B => {
-                clock.cycles(4).await;
-                self.sbc(B)?;
+                clock::ticks(4).await;
+                self.sbc(self.reg.r8(B));
             }
             SBC_A_C => {
-                clock.cycles(4).await;
-                self.sbc(C)?;
+                clock::ticks(4).await;
+                self.sbc(self.reg.r8(C));
             }
             SBC_A_D => {
-                clock.cycles(4).await;
-                self.sbc(D)?;
+                clock::ticks(4).await;
+                self.sbc(self.reg.r8(D));
             }
             SBC_A_E => {
-                clock.cycles(4).await;
-                self.sbc(E)?;
+                clock::ticks(4).await;
+                self.sbc(self.reg.r8(E));
             }
             SBC_A_H => {
-                clock.cycles(4).await;
-                self.sbc(H)?;
+                clock::ticks(4).await;
+                self.sbc(self.reg.r8(H));
             }
             SBC_A_L => {
-                clock.cycles(4).await;
-                self.sbc(L)?;
+                clock::ticks(4).await;
+                self.sbc(self.reg.r8(L));
             }
             SBC_A_xHLx => {
-                clock.cycles(8).await;
-                self.sbc(Operand::HLAddr)?;
+                clock::ticks(8).await;
+                self.sbc(mmu.read8(self.reg.r16(HL)));
             }
             SBC_A_A => {
-                clock.cycles(4).await;
-                self.sbc(A)?;
+                clock::ticks(4).await;
+                self.sbc(self.reg.r8(A));
             }
             AND_B => {
-                clock.cycles(4).await;
-                self.and(B)?;
+                clock::ticks(4).await;
+                self.and(self.reg.r8(B));
             }
             AND_C => {
-                clock.cycles(4).await;
-                self.and(C)?;
+                clock::ticks(4).await;
+                self.and(self.reg.r8(C));
             }
             AND_D => {
-                clock.cycles(4).await;
-                self.and(D)?;
+                clock::ticks(4).await;
+                self.and(self.reg.r8(D));
             }
             AND_E => {
-                clock.cycles(4).await;
-                self.and(E)?;
+                clock::ticks(4).await;
+                self.and(self.reg.r8(E));
             }
             AND_H => {
-                clock.cycles(4).await;
-                self.and(H)?;
+                clock::ticks(4).await;
+                self.and(self.reg.r8(H));
             }
             AND_L => {
-                clock.cycles(4).await;
-                self.and(L)?;
+                clock::ticks(4).await;
+                self.and(self.reg.r8(L));
             }
             AND_xHLx => {
-                clock.cycles(8).await;
-                self.and(Operand::HLAddr)?;
+                clock::ticks(8).await;
+                self.and(mmu.read8(self.reg.r16(HL)));
             }
             AND_A => {
-                clock.cycles(4).await;
-                self.and(A)?;
+                clock::ticks(4).await;
+                self.and(self.reg.r8(A));
             }
             XOR_B => {
-                clock.cycles(4).await;
-                self.xor(B)?;
+                clock::ticks(4).await;
+                self.xor(self.reg.r8(B));
             }
             XOR_C => {
-                clock.cycles(4).await;
-                self.xor(C)?;
+                clock::ticks(4).await;
+                self.xor(self.reg.r8(C));
             }
             XOR_D => {
-                clock.cycles(4).await;
-                self.xor(D)?;
+                clock::ticks(4).await;
+                self.xor(self.reg.r8(D));
             }
             XOR_E => {
-                clock.cycles(4).await;
-                self.xor(E)?;
+                clock::ticks(4).await;
+                self.xor(self.reg.r8(E));
             }
             XOR_H => {
-                clock.cycles(4).await;
-                self.xor(H)?;
+                clock::ticks(4).await;
+                self.xor(self.reg.r8(H));
             }
             XOR_L => {
-                clock.cycles(4).await;
-                self.xor(L)?;
+                clock::ticks(4).await;
+                self.xor(self.reg.r8(L));
             }
             XOR_xHLx => {
-                clock.cycles(8).await;
-                self.xor(Operand::HLAddr)?;
+                clock::ticks(8).await;
+                self.xor(mmu.read8(self.reg.r16(HL)));
             }
             XOR_A => {
-                clock.cycles(4).await;
-                self.xor(A)?;
+                clock::ticks(4).await;
+                self.xor(self.reg.r8(A));
             }
             OR_B => {
-                clock.cycles(4).await;
-                self.or(B)?;
+                clock::ticks(4).await;
+                self.or(self.reg.r8(B));
             }
             OR_C => {
-                clock.cycles(4).await;
-                self.or(C)?;
+                clock::ticks(4).await;
+                self.or(self.reg.r8(C));
             }
             OR_D => {
-                clock.cycles(4).await;
-                self.or(D)?;
+                clock::ticks(4).await;
+                self.or(self.reg.r8(D));
             }
             OR_E => {
-                clock.cycles(4).await;
-                self.or(E)?;
+                clock::ticks(4).await;
+                self.or(self.reg.r8(E));
             }
             OR_H => {
-                clock.cycles(4).await;
-                self.or(H)?;
+                clock::ticks(4).await;
+                self.or(self.reg.r8(H));
             }
             OR_L => {
-                clock.cycles(4).await;
-                self.or(L)?;
+                clock::ticks(4).await;
+                self.or(self.reg.r8(L));
             }
             OR_xHLx => {
-                clock.cycles(4).await;
-                self.or(Operand::HLAddr)?;
+                clock::ticks(4).await;
+                self.or(mmu.read8(self.reg.r16(HL)));
             }
             OR_A => {
-                clock.cycles(4).await;
-                self.or(A)?;
+                clock::ticks(4).await;
+                self.or(self.reg.r8(A));
             }
             CP_B => {
-                clock.cycles(4).await;
-                self.cp(B)?;
+                clock::ticks(4).await;
+                self.cp(self.reg.r8(B));
             }
             CP_C => {
-                clock.cycles(4).await;
-                self.cp(C)?;
+                clock::ticks(4).await;
+                self.cp(self.reg.r8(C));
             }
             CP_D => {
-                clock.cycles(4).await;
-                self.cp(D)?;
+                clock::ticks(4).await;
+                self.cp(self.reg.r8(D));
             }
             CP_E => {
-                clock.cycles(4).await;
-                self.cp(E)?;
+                clock::ticks(4).await;
+                self.cp(self.reg.r8(E));
             }
             CP_H => {
-                clock.cycles(4).await;
-                self.cp(H)?;
+                clock::ticks(4).await;
+                self.cp(self.reg.r8(H));
             }
             CP_L => {
-                clock.cycles(4).await;
-                self.cp(L)?;
+                clock::ticks(4).await;
+                self.cp(self.reg.r8(L));
             }
             CP_xHLx => {
-                clock.cycles(8).await;
-                self.cp(Operand::HLAddr)?;
+                clock::ticks(8).await;
+                self.cp(mmu.read8(self.reg.r16(HL)));
             }
             CP_A => {
-                clock.cycles(4).await;
-                self.cp(A)?;
+                clock::ticks(4).await;
+                self.cp(self.reg.r8(A));
             }
             RET_NZ => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 if !self.flags[Flag::Z] {
-                    clock.cycles(12).await;
-                    self.pc = self.pop()?;
+                    clock::ticks(12).await;
+                    self.pc = self.pop(mmu);
                 }
             }
             POP_BC => {
-                clock.cycles(12).await;
-                *self.reg.r16_mut(BC) = self.pop()?;
+                clock::ticks(12).await;
+                *self.reg.r16_mut(BC) = self.pop(mmu);
             }
             JP_NZ_a16 => {
-                clock.cycles(12).await;
+                clock::ticks(12).await;
+                let target = self.read16(mmu);
                 if !self.flags[Flag::Z] {
-                    clock.cycles(4).await;
-                    self.pc = self.read16()?;
+                    clock::ticks(4).await;
+                    self.pc = target;
                 }
             }
             JP_a16 => {
-                clock.cycles(16).await;
-                self.pc = self.read16()?;
+                clock::ticks(16).await;
+                self.pc = self.read16(mmu);
             }
             CALL_NZ_a16 => {
-                clock.cycles(12).await;
-                let target = self.read16()?;
+                clock::ticks(12).await;
+                let target = self.read16(mmu);
 
                 if !self.flags[Flag::Z] {
-                    clock.cycles(12).await;
-                    self.push(self.pc)?;
+                    clock::ticks(12).await;
+                    self.push(mmu, self.pc);
                     self.pc = target;
                 }
             }
             PUSH_BC => {
-                clock.cycles(16).await;
-                self.push(self.reg.r16(BC))?;
+                clock::ticks(16).await;
+                self.push(mmu, self.reg.r16(BC));
             }
             ADD_A_d8 => {
-                clock.cycles(8).await;
-                self.add(Operand::Immediate)?;
+                clock::ticks(8).await;
+                let d8 = self.read8(mmu);
+                self.add(d8);
             }
             RST_00H => {
-                clock.cycles(16).await;
-                self.push(self.pc)?;
+                clock::ticks(16).await;
+                self.push(mmu, self.pc);
                 self.pc = 0x00;
             }
             RET_Z => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 if self.flags[Flag::Z] {
-                    clock.cycles(12).await;
-                    self.pc = self.pop()?;
+                    clock::ticks(12).await;
+                    self.pc = self.pop(mmu);
                 }
             }
             RET => {
-                clock.cycles(16).await;
-                self.pc = self.pop()?;
+                clock::ticks(16).await;
+                self.pc = self.pop(mmu);
             }
             JP_Z_a16 => {
-                clock.cycles(12).await;
+                clock::ticks(12).await;
+                let target = self.read16(mmu);
                 if self.flags[Flag::Z] {
-                    clock.cycles(4).await;
-                    self.pc = self.read16()?;
+                    clock::ticks(4).await;
+                    self.pc = target;
                 }
             }
             PREFIX_CB => {
-                // Clock cycles are consumed by the prefixed commands to avoid confusion
+                // Clock ticks are consumed by the prefixed commands to avoid confusion
 
                 sa::const_assert_eq!(CBInstruction::SET_7_A as u8, std::u8::MAX);
-                let cb_instruction: CBInstruction = unsafe { std::mem::transmute(self.read8()?) };
+                let cb_instruction: CBInstruction = unsafe { std::mem::transmute(self.read8(mmu)) };
 
-                self.execute_cb(clock, cb_instruction).await?;
+                self.execute_cb(cb_instruction, mmu).await;
             }
             CALL_Z_a16 => {
-                clock.cycles(12).await;
-                let target = self.read16()?;
+                clock::ticks(12).await;
+                let target = self.read16(mmu);
 
                 if self.flags[Flag::Z] {
-                    clock.cycles(12).await;
-                    self.push(self.pc)?;
+                    clock::ticks(12).await;
+                    self.push(mmu, self.pc);
                     self.pc = target;
                 }
             }
             CALL_a16 => {
-                clock.cycles(24).await;
-                self.push(self.pc)?;
-                self.pc = self.read16()?;
+                clock::ticks(24).await;
+                self.push(mmu, self.pc);
+                self.pc = self.read16(mmu);
             }
             ADC_A_d8 => {
-                clock.cycles(8).await;
-                self.adc(Operand::Immediate)?;
+                clock::ticks(8).await;
+                let d8 = self.read8(mmu);
+                self.adc(d8);
             }
             RST_08H => {
-                clock.cycles(16).await;
-                self.push(self.pc)?;
+                clock::ticks(16).await;
+                self.push(mmu, self.pc);
                 self.pc = 0x08;
             }
             RET_NC => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 if !self.flags[Flag::C] {
-                    clock.cycles(12).await;
-                    self.pc = self.pop()?;
+                    clock::ticks(12).await;
+                    self.pc = self.pop(mmu);
                 }
             }
             POP_DE => {
-                clock.cycles(12).await;
-                *self.reg.r16_mut(DE) = self.pop()?;
+                clock::ticks(12).await;
+                *self.reg.r16_mut(DE) = self.pop(mmu);
             }
             JP_NC_a16 => {
-                clock.cycles(12).await;
+                clock::ticks(12).await;
+                let target = self.read16(mmu);
                 if !self.flags[Flag::C] {
-                    clock.cycles(4).await;
-                    self.pc = self.read16()?;
+                    clock::ticks(4).await;
+                    self.pc = target;
                 }
             }
             NOT_USED => {
                 panic!("Attempted to execute unused instruction");
             }
             CALL_NC_a16 => {
-                clock.cycles(12).await;
-                let target = self.read16()?;
+                clock::ticks(12).await;
+                let target = self.read16(mmu);
 
                 if !self.flags[Flag::C] {
-                    clock.cycles(12).await;
-                    self.push(self.pc)?;
+                    clock::ticks(12).await;
+                    self.push(mmu, self.pc);
                     self.pc = target;
                 }
             }
             PUSH_DE => {
-                clock.cycles(16).await;
-                self.push(self.reg.r16(DE))?;
+                clock::ticks(16).await;
+                self.push(mmu, self.reg.r16(DE));
             }
             SUB_d8 => {
-                clock.cycles(8).await;
-                self.sub(Operand::Immediate)?;
+                clock::ticks(8).await;
+                let d8 = self.read8(mmu);
+                self.sub(d8);
             }
             RST_10H => {
-                clock.cycles(16).await;
-                self.push(self.pc)?;
+                clock::ticks(16).await;
+                self.push(mmu, self.pc);
                 self.pc = 0x10;
             }
             RET_C => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 if self.flags[Flag::C] {
-                    clock.cycles(12).await;
-                    self.pc = self.pop()?;
+                    clock::ticks(12).await;
+                    self.pc = self.pop(mmu);
                 }
             }
             RETI => {
-                clock.cycles(16).await;
-                self.pc = self.pop()?;
+                clock::ticks(16).await;
+                self.pc = self.pop(mmu);
                 self.interrupts_enabled = true;
             }
             JP_C_a16 => {
-                clock.cycles(12).await;
+                clock::ticks(12).await;
+                let target = self.read16(mmu);
                 if self.flags[Flag::C] {
-                    clock.cycles(4).await;
-                    self.pc = self.read16()?;
+                    clock::ticks(4).await;
+                    self.pc = target;
                 }
             }
             NOT_USED_0 => {
                 panic!("Attempted to execute unused instruction");
             }
             CALL_C_a16 => {
-                clock.cycles(12).await;
-                let target = self.read16()?;
+                clock::ticks(12).await;
+                let target = self.read16(mmu);
 
                 if self.flags[Flag::C] {
-                    clock.cycles(12).await;
-                    self.push(self.pc)?;
+                    clock::ticks(12).await;
+                    self.push(mmu, self.pc);
                     self.pc = target;
                 }
             }
@@ -1296,26 +1293,27 @@ impl CPU {
                 panic!("Attempted to execute unused instruction");
             }
             SBC_A_d8 => {
-                clock.cycles(8).await;
-                self.sbc(Operand::HLAddr)?;
+                clock::ticks(8).await;
+                let d8 = self.read8(mmu);
+                self.sbc(d8);
             }
             RST_18H => {
-                clock.cycles(16).await;
-                self.push(self.pc)?;
+                clock::ticks(16).await;
+                self.push(mmu, self.pc);
                 self.pc = 0x18;
             }
             LDH_xa8x_A => {
-                clock.cycles(12).await;
-                let offset = self.read8()?;
-                *self.mem.get8_mut(0xff00 + offset as u16)? = self.reg.r8(A);
+                clock::ticks(12).await;
+                let offset = self.read8(mmu);
+                mmu.write8(0xFF00 + offset as u16, self.reg.r8(A));
             }
             POP_HL => {
-                clock.cycles(12).await;
-                *self.reg.r16_mut(HL) = self.pop()?;
+                clock::ticks(12).await;
+                *self.reg.r16_mut(HL) = self.pop(mmu);
             }
             LD_xCx_A => {
-                clock.cycles(8).await;
-                *self.mem.get8_mut(self.reg.r8(C) as u16)? = self.reg.r8(A);
+                clock::ticks(8).await;
+                mmu.write8(0xFF00 + self.reg.r8(C) as u16, self.reg.r8(A));
             }
             NOT_USED_2 => {
                 panic!("Attempted to execute unused instruction");
@@ -1324,32 +1322,33 @@ impl CPU {
                 panic!("Attempted to execute unused instruction");
             }
             PUSH_HL => {
-                clock.cycles(16).await;
-                self.push(self.reg.r16(HL))?;
+                clock::ticks(16).await;
+                self.push(mmu, self.reg.r16(HL));
             }
             AND_d8 => {
-                clock.cycles(8).await;
-                self.and(Operand::Immediate)?;
+                clock::ticks(8).await;
+                let d8 = self.read8(mmu);
+                self.and(d8);
             }
             RST_20H => {
-                clock.cycles(16).await;
-                self.push(self.pc)?;
+                clock::ticks(16).await;
+                self.push(mmu, self.pc);
                 self.pc = 0x20;
             }
             ADD_SP_r8 => {
-                clock.cycles(16).await;
-                let offset = self.read8()?;
+                clock::ticks(16).await;
+                let offset = self.read8(mmu);
                 let target = self.reg.r16_mut(SP);
                 *target = (*target as i16 + offset as i16) as u16;
             }
             JP_xHLx => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 self.pc = self.reg.r16(HL);
             }
             LD_xa16x_A => {
-                clock.cycles(16).await;
-                let addr = self.read16()?;
-                *self.mem.get8_mut(addr)? = self.reg.r8(A);
+                clock::ticks(16).await;
+                let addr = self.read16(mmu);
+                mmu.write8(addr, self.reg.r8(A));
             }
             NOT_USED_4 => {
                 panic!("Attempted to execute unused instruction");
@@ -1361,65 +1360,67 @@ impl CPU {
                 panic!("Attempted to execute unused instruction");
             }
             XOR_d8 => {
-                clock.cycles(8).await;
-                self.xor(Operand::Immediate)?;
+                clock::ticks(8).await;
+                let d8 = self.read8(mmu);
+                self.xor(d8);
             }
             RST_28H => {
-                clock.cycles(16).await;
-                self.push(self.pc)?;
+                clock::ticks(16).await;
+                self.push(mmu, self.pc);
                 self.pc = 0x28;
             }
             LDH_A_xa8x => {
-                clock.cycles(12).await;
-                let offset = self.read8()?;
-                *self.reg.r8_mut(A) = self.mem.get8(0xff00 + offset as u16)?;
+                clock::ticks(12).await;
+                let offset = self.read8(mmu);
+                *self.reg.r8_mut(A) = mmu.read8(0xFF00 + offset as u16);
             }
             POP_AF => {
-                clock.cycles(12).await;
-                let af = self.pop()?;
+                clock::ticks(12).await;
+                let af = self.pop(mmu);
                 *self.reg.r8_mut(A) = (af >> 4) as u8;
                 self.flags.set_from_u8(af as u8);
             }
             LD_A_xCx => {
-                clock.cycles(8).await;
-                *self.reg.r8_mut(A) = self.mem.get8(self.reg.r8(C) as u16)?;
+                clock::ticks(8).await;
+                *self.reg.r8_mut(A) = mmu.read8(0xFF00 + self.reg.r8(C) as u16);
             }
             DI => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 self.interrupts_enabled = false;
             }
             NOT_USED_7 => {
                 panic!("Attempted to execute unused instruction");
             }
             PUSH_AF => {
-                clock.cycles(16).await;
-                let af = (self.reg.r8(A) as u16) << 4 + self.flags.as_u8();
-                self.push(af)?;
+                clock::ticks(16).await;
+                let af = ((self.reg.r8(A) as u16) << 4) + self.flags.as_u8() as u16;
+                self.push(mmu, af);
             }
             OR_d8 => {
-                clock.cycles(8).await;
-                self.or(Operand::Immediate)?;
+                clock::ticks(8).await;
+                let d8 = self.read8(mmu);
+                self.or(d8);
             }
             RST_30H => {
-                clock.cycles(16).await;
-                self.push(self.pc)?;
+                clock::ticks(16).await;
+                self.push(mmu, self.pc);
                 self.pc = 0x30;
             }
             LD_HL_SPpr8 => {
-                clock.cycles(12).await;
-                *self.reg.r16_mut(HL) = (self.reg.r16(SP) as i16 + self.read8()? as i16) as u16;
+                clock::ticks(12).await;
+                *self.reg.r16_mut(HL) = (self.reg.r16(SP) as i16 + self.read8(mmu) as i16) as u16;
             }
             LD_SP_HL => {
-                clock.cycles(8).await;
+                clock::ticks(8).await;
                 *self.reg.r16_mut(SP) = self.reg.r16(HL);
             }
             LD_A_xa16x => {
-                clock.cycles(16).await;
-                let addr = self.read16()?;
-                *self.reg.r8_mut(A) = self.mem.get8(addr)?;
+                clock::ticks(16).await;
+                let addr = self.read16(mmu);
+                *self.reg.r8_mut(A) = mmu.read8(addr);
             }
             EI => {
-                clock.cycles(4).await;
+                clock::ticks(4).await;
                 // TODO: According to https://www.reddit.com/r/EmuDev/comments/7rm8l2/game_boy_vblank_interrupt_confusion/
                 // Interrupts are enabled on after the instruction AFTER this one, not immediately
                 // TODO: Check if the same is true for DI
@@ -1432,1196 +1433,1222 @@ impl CPU {
                 panic!("Attempted to execute unused instruction");
             }
             CP_d8 => {
-                clock.cycles(8).await;
-                self.cp(Operand::Immediate)?;
+                clock::ticks(8).await;
+                let d8 = self.read8(mmu);
+                self.cp(d8);
             }
             RST_38H => {
-                clock.cycles(16).await;
-                self.push(self.pc)?;
+                clock::ticks(16).await;
+                self.push(mmu, self.pc);
                 self.pc = 0x38;
             }
-        });
+        }
     }
 
-    fn rlc<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
-        let target = target.into().into_ref(self)?;
-        let old = *target;
+    fn rlc<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        *target = target.rotate_left(1);
+        target.write(self, mmu, old.rotate_left(1));
 
         self.flags[Flag::Z] = old == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = old & 0b1000_0000 != 0;
-
-        Ok(())
     }
 
-    fn rrc<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
-        let target = target.into().into_ref(self)?;
-        let old = *target;
+    fn rrc<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        *target = target.rotate_right(1);
+        target.write(self, mmu, old.rotate_right(1));
 
         self.flags[Flag::Z] = old == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = old & 0b1 != 0;
-
-        Ok(())
     }
 
-    fn rl<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
+    fn rl<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
         let c = self.flags[Flag::C];
-        let target = target.into().into_ref(self)?;
-        let old = *target;
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        *target <<= 1;
+        let mut new = old << 1;
         if c {
-            *target += 1;
+            new += 1;
         }
 
-        self.flags[Flag::Z] = *target == 0;
+        target.write(self, mmu, new);
+
+        self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = old & 0b1000_0000 != 0;
-
-        Ok(())
     }
 
-    fn rr<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
+    fn rr<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
         let c = self.flags[Flag::C];
-        let target = target.into().into_ref(self)?;
-        let old = *target;
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        *target >>= 1;
+        let mut new = old >> 1;
         if c {
-            *target += 0b1000_0000;
+            new += 0b1000_0000;
         }
 
-        self.flags[Flag::Z] = *target == 0;
+        target.write(self, mmu, new);
+
+        self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = old & 0b1 != 0;
-
-        Ok(())
     }
 
-    fn sla<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
-        let target = target.into().into_ref(self)?;
-        let old = *target;
+    fn sla<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        *target <<= 1;
+        let new = old << 1;
 
-        self.flags[Flag::Z] = *target == 0;
+        target.write(self, mmu, new);
+
+        self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = old & 0b1000_0000 != 0;
-
-        Ok(())
     }
 
-    fn sra<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
-        let target = target.into().into_ref(self)?;
-        let old = *target;
+    fn sra<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        *target >>= 1;
-        *target |= old & 0b1000_0000;
+        let mut new = old >> 1;
+        new |= old & 0b1000_0000;
 
-        self.flags[Flag::Z] = *target == 0;
+        target.write(self, mmu, new);
+        self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = old & 0b1 != 0;
-
-        Ok(())
     }
 
-    fn srl<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
-        let target = target.into().into_ref(self)?;
-        let old = *target;
+    fn srl<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        *target >>= 1;
+        let new = old >> 1;
 
-        self.flags[Flag::Z] = *target == 0;
+        self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = old & 0b1 != 0;
-
-        Ok(())
     }
 
-    fn swap<O: Into<Operand>>(&mut self, target: O) -> Result<(), MemoryAccessError> {
-        let target = target.into().into_ref(self)?;
+    fn swap<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
 
-        *target = (*target >> 4) + (*target << 4);
+        let new = (old >> 4) + (old << 4);
+        target.write(self, mmu, new);
 
-        self.flags[Flag::Z] = *target == 0;
+        self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = false;
-
-        Ok(())
     }
 
-    fn bit<O: Into<Operand>>(&mut self, bit: u8, target: O) -> Result<(), MemoryAccessError> {
-        let target = target.into().into_val(self)?;
-
+    fn bit(&mut self, bit: u8, target: u8) {
         self.flags[Flag::Z] = (target >> bit) & 0b1 == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = true;
-
-        Ok(())
     }
 
-    fn res<O: Into<Operand>>(&mut self, bit: u8, target: O) -> Result<(), MemoryAccessError> {
-        *target.into().into_ref(self)? &= !(1 << bit);
-
-        Ok(())
+    fn res<O: Into<Operand>>(&mut self, mmu: &mut MMU, bit: u8, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
+        target.write(self, mmu, old & !(1 << bit));
     }
 
-    fn set<O: Into<Operand>>(&mut self, bit: u8, target: O) -> Result<(), MemoryAccessError> {
-        *target.into().into_ref(self)? |= 1 << bit;
-
-        Ok(())
+    fn set<O: Into<Operand>>(&mut self, mmu: &mut MMU, bit: u8, target: O) {
+        let mut target = target.into();
+        let old = target.read(self, mmu);
+        target.write(self, mmu, old | 1 << bit);
     }
 
-    async fn execute_cb(
-        &mut self,
-        clock: &Clock,
-        instruction: CBInstruction,
-    ) -> Result<(), MemoryAccessError> {
+    async fn execute_cb(&mut self, instruction: CBInstruction, mmu: &mut MMU<'_>) {
         use CBInstruction::*;
+        use R16::*;
         use R8::*;
+
+        // println!(
+        //     "Executing Prefixed {:?} with PC now at {:#06X}",
+        //     instruction, self.pc
+        // );
 
         match instruction {
             RLC_B => {
-                clock.cycles(8).await;
-                self.rlc(B)?;
+                clock::ticks(8).await;
+                self.rlc(mmu, B);
             }
             RLC_C => {
-                clock.cycles(8).await;
-                self.rlc(C)?;
+                clock::ticks(8).await;
+                self.rlc(mmu, C);
             }
             RLC_D => {
-                clock.cycles(8).await;
-                self.rlc(D)?;
+                clock::ticks(8).await;
+                self.rlc(mmu, D);
             }
             RLC_E => {
-                clock.cycles(8).await;
-                self.rlc(E)?;
+                clock::ticks(8).await;
+                self.rlc(mmu, E);
             }
             RLC_H => {
-                clock.cycles(8).await;
-                self.rlc(H)?;
+                clock::ticks(8).await;
+                self.rlc(mmu, H);
             }
             RLC_L => {
-                clock.cycles(8).await;
-                self.rlc(L)?;
+                clock::ticks(8).await;
+                self.rlc(mmu, L);
             }
             RLC_xHLx => {
-                clock.cycles(16).await;
-                self.rlc(Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.rlc(mmu, Operand::HLAddr);
             }
             RLC_A => {
-                clock.cycles(8).await;
-                self.rlc(A)?;
+                clock::ticks(8).await;
+                self.rlc(mmu, A);
             }
             RRC_B => {
-                clock.cycles(8).await;
-                self.rrc(B)?;
+                clock::ticks(8).await;
+                self.rrc(mmu, B);
             }
             RRC_C => {
-                clock.cycles(8).await;
-                self.rrc(C)?;
+                clock::ticks(8).await;
+                self.rrc(mmu, C);
             }
             RRC_D => {
-                clock.cycles(8).await;
-                self.rrc(D)?;
+                clock::ticks(8).await;
+                self.rrc(mmu, D);
             }
             RRC_E => {
-                clock.cycles(8).await;
-                self.rrc(E)?;
+                clock::ticks(8).await;
+                self.rrc(mmu, E);
             }
             RRC_H => {
-                clock.cycles(8).await;
-                self.rrc(H)?;
+                clock::ticks(8).await;
+                self.rrc(mmu, H);
             }
             RRC_L => {
-                clock.cycles(8).await;
-                self.rrc(L)?;
+                clock::ticks(8).await;
+                self.rrc(mmu, L);
             }
             RRC_xHLx => {
-                clock.cycles(16).await;
-                self.rrc(Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.rrc(mmu, Operand::HLAddr);
             }
             RRC_A => {
-                clock.cycles(8).await;
-                self.rrc(A)?;
+                clock::ticks(8).await;
+                self.rrc(mmu, A);
             }
             RL_B => {
-                clock.cycles(8).await;
-                self.rl(B)?;
+                clock::ticks(8).await;
+                self.rl(mmu, B);
             }
             RL_C => {
-                clock.cycles(8).await;
-                self.rl(C)?;
+                clock::ticks(8).await;
+                self.rl(mmu, C);
             }
             RL_D => {
-                clock.cycles(8).await;
-                self.rl(D)?;
+                clock::ticks(8).await;
+                self.rl(mmu, D);
             }
             RL_E => {
-                clock.cycles(8).await;
-                self.rl(E)?;
+                clock::ticks(8).await;
+                self.rl(mmu, E);
             }
             RL_H => {
-                clock.cycles(8).await;
-                self.rl(H)?;
+                clock::ticks(8).await;
+                self.rl(mmu, H);
             }
             RL_L => {
-                clock.cycles(8).await;
-                self.rl(L)?;
+                clock::ticks(8).await;
+                self.rl(mmu, L);
             }
             RL_xHLx => {
-                clock.cycles(16).await;
-                self.rl(Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.rl(mmu, Operand::HLAddr);
             }
             RL_A => {
-                clock.cycles(8).await;
-                self.rl(A)?;
+                clock::ticks(8).await;
+                self.rl(mmu, A);
             }
             RR_B => {
-                clock.cycles(8).await;
-                self.rr(B)?;
+                clock::ticks(8).await;
+                self.rr(mmu, B);
             }
             RR_C => {
-                clock.cycles(8).await;
-                self.rr(C)?;
+                clock::ticks(8).await;
+                self.rr(mmu, C);
             }
             RR_D => {
-                clock.cycles(8).await;
-                self.rr(D)?;
+                clock::ticks(8).await;
+                self.rr(mmu, D);
             }
             RR_E => {
-                clock.cycles(8).await;
-                self.rr(E)?;
+                clock::ticks(8).await;
+                self.rr(mmu, E);
             }
             RR_H => {
-                clock.cycles(8).await;
-                self.rr(H)?;
+                clock::ticks(8).await;
+                self.rr(mmu, H);
             }
             RR_L => {
-                clock.cycles(8).await;
-                self.rr(L)?;
+                clock::ticks(8).await;
+                self.rr(mmu, L);
             }
             RR_xHLx => {
-                clock.cycles(16).await;
-                self.rr(Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.rr(mmu, Operand::HLAddr);
             }
             RR_A => {
-                clock.cycles(8).await;
-                self.rr(A)?;
+                clock::ticks(8).await;
+                self.rr(mmu, A);
             }
             SLA_B => {
-                clock.cycles(8).await;
-                self.sla(B)?;
+                clock::ticks(8).await;
+                self.sla(mmu, B);
             }
             SLA_C => {
-                clock.cycles(8).await;
-                self.sla(C)?;
+                clock::ticks(8).await;
+                self.sla(mmu, C);
             }
             SLA_D => {
-                clock.cycles(8).await;
-                self.sla(D)?;
+                clock::ticks(8).await;
+                self.sla(mmu, D);
             }
             SLA_E => {
-                clock.cycles(8).await;
-                self.sla(E)?;
+                clock::ticks(8).await;
+                self.sla(mmu, E);
             }
             SLA_H => {
-                clock.cycles(8).await;
-                self.sla(H)?;
+                clock::ticks(8).await;
+                self.sla(mmu, H);
             }
             SLA_L => {
-                clock.cycles(8).await;
-                self.sla(L)?;
+                clock::ticks(8).await;
+                self.sla(mmu, L);
             }
             SLA_xHLx => {
-                clock.cycles(16).await;
-                self.sla(Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.sla(mmu, Operand::HLAddr);
             }
             SLA_A => {
-                clock.cycles(8).await;
-                self.sla(A)?;
+                clock::ticks(8).await;
+                self.sla(mmu, A);
             }
             SRA_B => {
-                clock.cycles(8).await;
-                self.sra(B)?;
+                clock::ticks(8).await;
+                self.sra(mmu, B);
             }
             SRA_C => {
-                clock.cycles(8).await;
-                self.sra(C)?;
+                clock::ticks(8).await;
+                self.sra(mmu, C);
             }
             SRA_D => {
-                clock.cycles(8).await;
-                self.sra(D)?;
+                clock::ticks(8).await;
+                self.sra(mmu, D);
             }
             SRA_E => {
-                clock.cycles(8).await;
-                self.sra(E)?;
+                clock::ticks(8).await;
+                self.sra(mmu, E);
             }
             SRA_H => {
-                clock.cycles(8).await;
-                self.sra(H)?;
+                clock::ticks(8).await;
+                self.sra(mmu, H);
             }
             SRA_L => {
-                clock.cycles(8).await;
-                self.sra(L)?;
+                clock::ticks(8).await;
+                self.sra(mmu, L);
             }
             SRA_xHLx => {
-                clock.cycles(16).await;
-                self.sra(Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.sra(mmu, Operand::HLAddr);
             }
             SRA_A => {
-                clock.cycles(8).await;
-                self.sra(A)?;
+                clock::ticks(8).await;
+                self.sra(mmu, A);
             }
             SWAP_B => {
-                clock.cycles(8).await;
-                self.swap(B)?;
+                clock::ticks(8).await;
+                self.swap(mmu, B);
             }
             SWAP_C => {
-                clock.cycles(8).await;
-                self.swap(C)?;
+                clock::ticks(8).await;
+                self.swap(mmu, C);
             }
             SWAP_D => {
-                clock.cycles(8).await;
-                self.swap(D)?;
+                clock::ticks(8).await;
+                self.swap(mmu, D);
             }
             SWAP_E => {
-                clock.cycles(8).await;
-                self.swap(E)?;
+                clock::ticks(8).await;
+                self.swap(mmu, E);
             }
             SWAP_H => {
-                clock.cycles(8).await;
-                self.swap(H)?;
+                clock::ticks(8).await;
+                self.swap(mmu, H);
             }
             SWAP_L => {
-                clock.cycles(8).await;
-                self.swap(L)?;
+                clock::ticks(8).await;
+                self.swap(mmu, L);
             }
             SWAP_xHLx => {
-                clock.cycles(16).await;
-                self.swap(Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.swap(mmu, Operand::HLAddr);
             }
             SWAP_A => {
-                clock.cycles(8).await;
-                self.swap(A)?;
+                clock::ticks(8).await;
+                self.swap(mmu, A);
             }
             SRL_B => {
-                clock.cycles(8).await;
-                self.srl(B)?;
+                clock::ticks(8).await;
+                self.srl(mmu, B);
             }
             SRL_C => {
-                clock.cycles(8).await;
-                self.srl(C)?;
+                clock::ticks(8).await;
+                self.srl(mmu, C);
             }
             SRL_D => {
-                clock.cycles(8).await;
-                self.srl(D)?;
+                clock::ticks(8).await;
+                self.srl(mmu, D);
             }
             SRL_E => {
-                clock.cycles(8).await;
-                self.srl(E)?;
+                clock::ticks(8).await;
+                self.srl(mmu, E);
             }
             SRL_H => {
-                clock.cycles(8).await;
-                self.srl(H)?;
+                clock::ticks(8).await;
+                self.srl(mmu, H);
             }
             SRL_L => {
-                clock.cycles(8).await;
-                self.srl(L)?;
+                clock::ticks(8).await;
+                self.srl(mmu, L);
             }
             SRL_xHLx => {
-                clock.cycles(16).await;
-                self.srl(Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.srl(mmu, Operand::HLAddr);
             }
             SRL_A => {
-                clock.cycles(8).await;
-                self.srl(A)?;
+                clock::ticks(8).await;
+                self.srl(mmu, A);
             }
             BIT_0_B => {
-                clock.cycles(8).await;
-                self.bit(0, B)?;
+                clock::ticks(8).await;
+                self.bit(0, self.reg.r8(B));
             }
             BIT_0_C => {
-                clock.cycles(8).await;
-                self.bit(0, C)?;
+                clock::ticks(8).await;
+                self.bit(0, self.reg.r8(C));
             }
             BIT_0_D => {
-                clock.cycles(8).await;
-                self.bit(0, D)?;
+                clock::ticks(8).await;
+                self.bit(0, self.reg.r8(D));
             }
             BIT_0_E => {
-                clock.cycles(8).await;
-                self.bit(0, E)?;
+                clock::ticks(8).await;
+                self.bit(0, self.reg.r8(E));
             }
             BIT_0_H => {
-                clock.cycles(8).await;
-                self.bit(0, H)?;
+                clock::ticks(8).await;
+                self.bit(0, self.reg.r8(H));
             }
             BIT_0_L => {
-                clock.cycles(8).await;
-                self.bit(0, L)?;
+                clock::ticks(8).await;
+                self.bit(0, self.reg.r8(L));
             }
             BIT_0_xHLx => {
-                clock.cycles(16).await;
-                self.bit(0, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.bit(0, mmu.read8(self.reg.r16(HL)));
             }
             BIT_0_A => {
-                clock.cycles(8).await;
-                self.bit(0, A)?;
+                clock::ticks(8).await;
+                self.bit(0, self.reg.r8(A));
             }
             BIT_1_B => {
-                clock.cycles(8).await;
-                self.bit(1, B)?;
+                clock::ticks(8).await;
+                self.bit(1, self.reg.r8(B));
             }
             BIT_1_C => {
-                clock.cycles(8).await;
-                self.bit(1, C)?;
+                clock::ticks(8).await;
+                self.bit(1, self.reg.r8(C));
             }
             BIT_1_D => {
-                clock.cycles(8).await;
-                self.bit(1, D)?;
+                clock::ticks(8).await;
+                self.bit(1, self.reg.r8(D));
             }
             BIT_1_E => {
-                clock.cycles(8).await;
-                self.bit(1, E)?;
+                clock::ticks(8).await;
+                self.bit(1, self.reg.r8(E));
             }
             BIT_1_H => {
-                clock.cycles(8).await;
-                self.bit(1, H)?;
+                clock::ticks(8).await;
+                self.bit(1, self.reg.r8(H));
             }
             BIT_1_L => {
-                clock.cycles(8).await;
-                self.bit(1, L)?;
+                clock::ticks(8).await;
+                self.bit(1, self.reg.r8(L));
             }
             BIT_1_xHLx => {
-                clock.cycles(16).await;
-                self.bit(1, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.bit(1, mmu.read8(self.reg.r16(HL)));
             }
             BIT_1_A => {
-                clock.cycles(8).await;
-                self.bit(1, A)?;
+                clock::ticks(8).await;
+                self.bit(1, self.reg.r8(A));
             }
             BIT_2_B => {
-                clock.cycles(8).await;
-                self.bit(2, B)?;
+                clock::ticks(8).await;
+                self.bit(2, self.reg.r8(B));
             }
             BIT_2_C => {
-                clock.cycles(8).await;
-                self.bit(2, C)?;
+                clock::ticks(8).await;
+                self.bit(2, self.reg.r8(C));
             }
             BIT_2_D => {
-                clock.cycles(8).await;
-                self.bit(2, D)?;
+                clock::ticks(8).await;
+                self.bit(2, self.reg.r8(D));
             }
             BIT_2_E => {
-                clock.cycles(8).await;
-                self.bit(2, E)?;
+                clock::ticks(8).await;
+                self.bit(2, self.reg.r8(E));
             }
             BIT_2_H => {
-                clock.cycles(8).await;
-                self.bit(2, H)?;
+                clock::ticks(8).await;
+                self.bit(2, self.reg.r8(H));
             }
             BIT_2_L => {
-                clock.cycles(8).await;
-                self.bit(2, L)?;
+                clock::ticks(8).await;
+                self.bit(2, self.reg.r8(L));
             }
             BIT_2_xHLx => {
-                clock.cycles(16).await;
-                self.bit(2, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.bit(2, mmu.read8(self.reg.r16(HL)));
             }
             BIT_2_A => {
-                clock.cycles(8).await;
-                self.bit(2, A)?;
+                clock::ticks(8).await;
+                self.bit(2, self.reg.r8(A));
             }
             BIT_3_B => {
-                clock.cycles(8).await;
-                self.bit(3, B)?;
+                clock::ticks(8).await;
+                self.bit(3, self.reg.r8(B));
             }
             BIT_3_C => {
-                clock.cycles(8).await;
-                self.bit(3, C)?;
+                clock::ticks(8).await;
+                self.bit(3, self.reg.r8(C));
             }
             BIT_3_D => {
-                clock.cycles(8).await;
-                self.bit(3, D)?;
+                clock::ticks(8).await;
+                self.bit(3, self.reg.r8(D));
             }
             BIT_3_E => {
-                clock.cycles(8).await;
-                self.bit(3, E)?;
+                clock::ticks(8).await;
+                self.bit(3, self.reg.r8(E));
             }
             BIT_3_H => {
-                clock.cycles(8).await;
-                self.bit(3, H)?;
+                clock::ticks(8).await;
+                self.bit(3, self.reg.r8(H));
             }
             BIT_3_L => {
-                clock.cycles(8).await;
-                self.bit(3, L)?;
+                clock::ticks(8).await;
+                self.bit(3, self.reg.r8(L));
             }
             BIT_3_xHLx => {
-                clock.cycles(16).await;
-                self.bit(3, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.bit(3, mmu.read8(self.reg.r16(HL)));
             }
             BIT_3_A => {
-                clock.cycles(8).await;
-                self.bit(3, A)?;
+                clock::ticks(8).await;
+                self.bit(3, self.reg.r8(A));
             }
             BIT_4_B => {
-                clock.cycles(8).await;
-                self.bit(4, B)?;
+                clock::ticks(8).await;
+                self.bit(4, self.reg.r8(B));
             }
             BIT_4_C => {
-                clock.cycles(8).await;
-                self.bit(4, C)?;
+                clock::ticks(8).await;
+                self.bit(4, self.reg.r8(C));
             }
             BIT_4_D => {
-                clock.cycles(8).await;
-                self.bit(4, D)?;
+                clock::ticks(8).await;
+                self.bit(4, self.reg.r8(D));
             }
             BIT_4_E => {
-                clock.cycles(8).await;
-                self.bit(4, E)?;
+                clock::ticks(8).await;
+                self.bit(4, self.reg.r8(E));
             }
             BIT_4_H => {
-                clock.cycles(8).await;
-                self.bit(4, H)?;
+                clock::ticks(8).await;
+                self.bit(4, self.reg.r8(H));
             }
             BIT_4_L => {
-                clock.cycles(8).await;
-                self.bit(4, L)?;
+                clock::ticks(8).await;
+                self.bit(4, self.reg.r8(L));
             }
             BIT_4_xHLx => {
-                clock.cycles(16).await;
-                self.bit(4, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.bit(4, mmu.read8(self.reg.r16(HL)));
             }
             BIT_4_A => {
-                clock.cycles(8).await;
-                self.bit(4, A)?;
+                clock::ticks(8).await;
+                self.bit(4, self.reg.r8(A));
             }
             BIT_5_B => {
-                clock.cycles(8).await;
-                self.bit(5, B)?;
+                clock::ticks(8).await;
+                self.bit(5, self.reg.r8(B));
             }
             BIT_5_C => {
-                clock.cycles(8).await;
-                self.bit(5, C)?;
+                clock::ticks(8).await;
+                self.bit(5, self.reg.r8(C));
             }
             BIT_5_D => {
-                clock.cycles(8).await;
-                self.bit(5, D)?;
+                clock::ticks(8).await;
+                self.bit(5, self.reg.r8(D));
             }
             BIT_5_E => {
-                clock.cycles(8).await;
-                self.bit(5, E)?;
+                clock::ticks(8).await;
+                self.bit(5, self.reg.r8(E));
             }
             BIT_5_H => {
-                clock.cycles(8).await;
-                self.bit(5, H)?;
+                clock::ticks(8).await;
+                self.bit(5, self.reg.r8(H));
             }
             BIT_5_L => {
-                clock.cycles(8).await;
-                self.bit(5, L)?;
+                clock::ticks(8).await;
+                self.bit(5, self.reg.r8(L));
             }
             BIT_5_xHLx => {
-                clock.cycles(16).await;
-                self.bit(5, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.bit(5, mmu.read8(self.reg.r16(HL)));
             }
             BIT_5_A => {
-                clock.cycles(8).await;
-                self.bit(5, A)?;
+                clock::ticks(8).await;
+                self.bit(5, self.reg.r8(A));
             }
             BIT_6_B => {
-                clock.cycles(8).await;
-                self.bit(6, B)?;
+                clock::ticks(8).await;
+                self.bit(6, self.reg.r8(B));
             }
             BIT_6_C => {
-                clock.cycles(8).await;
-                self.bit(6, C)?;
+                clock::ticks(8).await;
+                self.bit(6, self.reg.r8(C));
             }
             BIT_6_D => {
-                clock.cycles(8).await;
-                self.bit(6, D)?;
+                clock::ticks(8).await;
+                self.bit(6, self.reg.r8(D));
             }
             BIT_6_E => {
-                clock.cycles(8).await;
-                self.bit(6, E)?;
+                clock::ticks(8).await;
+                self.bit(6, self.reg.r8(E));
             }
             BIT_6_H => {
-                clock.cycles(8).await;
-                self.bit(6, H)?;
+                clock::ticks(8).await;
+                self.bit(6, self.reg.r8(H));
             }
             BIT_6_L => {
-                clock.cycles(8).await;
-                self.bit(6, L)?;
+                clock::ticks(8).await;
+                self.bit(6, self.reg.r8(L));
             }
             BIT_6_xHLx => {
-                clock.cycles(16).await;
-                self.bit(6, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.bit(6, mmu.read8(self.reg.r16(HL)));
             }
             BIT_6_A => {
-                clock.cycles(8).await;
-                self.bit(6, A)?;
+                clock::ticks(8).await;
+                self.bit(6, self.reg.r8(A));
             }
             BIT_7_B => {
-                clock.cycles(8).await;
-                self.bit(7, B)?;
+                clock::ticks(8).await;
+                self.bit(7, self.reg.r8(B));
             }
             BIT_7_C => {
-                clock.cycles(8).await;
-                self.bit(7, C)?;
+                clock::ticks(8).await;
+                self.bit(7, self.reg.r8(C));
             }
             BIT_7_D => {
-                clock.cycles(8).await;
-                self.bit(7, D)?;
+                clock::ticks(8).await;
+                self.bit(7, self.reg.r8(D));
             }
             BIT_7_E => {
-                clock.cycles(8).await;
-                self.bit(7, E)?;
+                clock::ticks(8).await;
+                self.bit(7, self.reg.r8(E));
             }
             BIT_7_H => {
-                clock.cycles(8).await;
-                self.bit(7, H)?;
+                clock::ticks(8).await;
+                self.bit(7, self.reg.r8(H));
             }
             BIT_7_L => {
-                clock.cycles(8).await;
-                self.bit(7, L)?;
+                clock::ticks(8).await;
+                self.bit(7, self.reg.r8(L));
             }
             BIT_7_xHLx => {
-                clock.cycles(16).await;
-                self.bit(7, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.bit(7, mmu.read8(self.reg.r16(HL)));
             }
             BIT_7_A => {
-                clock.cycles(8).await;
-                self.bit(7, A)?;
+                clock::ticks(8).await;
+                self.bit(7, self.reg.r8(A));
             }
             RES_0_B => {
-                clock.cycles(8).await;
-                self.res(0, B)?;
+                clock::ticks(8).await;
+                self.res(mmu, 0, B);
             }
             RES_0_C => {
-                clock.cycles(8).await;
-                self.res(0, C)?;
+                clock::ticks(8).await;
+                self.res(mmu, 0, C);
             }
             RES_0_D => {
-                clock.cycles(8).await;
-                self.res(0, D)?;
+                clock::ticks(8).await;
+                self.res(mmu, 0, D);
             }
             RES_0_E => {
-                clock.cycles(8).await;
-                self.res(0, E)?;
+                clock::ticks(8).await;
+                self.res(mmu, 0, E);
             }
             RES_0_H => {
-                clock.cycles(8).await;
-                self.res(0, H)?;
+                clock::ticks(8).await;
+                self.res(mmu, 0, H);
             }
             RES_0_L => {
-                clock.cycles(8).await;
-                self.res(0, L)?;
+                clock::ticks(8).await;
+                self.res(mmu, 0, L);
             }
             RES_0_xHLx => {
-                clock.cycles(16).await;
-                self.res(0, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.res(mmu, 0, Operand::HLAddr);
             }
             RES_0_A => {
-                clock.cycles(8).await;
-                self.res(0, A)?;
+                clock::ticks(8).await;
+                self.res(mmu, 0, A);
             }
             RES_1_B => {
-                clock.cycles(8).await;
-                self.res(1, B)?;
+                clock::ticks(8).await;
+                self.res(mmu, 1, B);
             }
             RES_1_C => {
-                clock.cycles(8).await;
-                self.res(1, C)?;
+                clock::ticks(8).await;
+                self.res(mmu, 1, C);
             }
             RES_1_D => {
-                clock.cycles(8).await;
-                self.res(1, D)?;
+                clock::ticks(8).await;
+                self.res(mmu, 1, D);
             }
             RES_1_E => {
-                clock.cycles(8).await;
-                self.res(1, E)?;
+                clock::ticks(8).await;
+                self.res(mmu, 1, E);
             }
             RES_1_H => {
-                clock.cycles(8).await;
-                self.res(1, H)?;
+                clock::ticks(8).await;
+                self.res(mmu, 1, H);
             }
             RES_1_L => {
-                clock.cycles(8).await;
-                self.res(1, L)?;
+                clock::ticks(8).await;
+                self.res(mmu, 1, L);
             }
             RES_1_xHLx => {
-                clock.cycles(16).await;
-                self.res(1, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.res(mmu, 1, Operand::HLAddr);
             }
             RES_1_A => {
-                clock.cycles(8).await;
-                self.res(1, A)?;
+                clock::ticks(8).await;
+                self.res(mmu, 1, A);
             }
             RES_2_B => {
-                clock.cycles(8).await;
-                self.res(2, B)?;
+                clock::ticks(8).await;
+                self.res(mmu, 2, B);
             }
             RES_2_C => {
-                clock.cycles(8).await;
-                self.res(2, C)?;
+                clock::ticks(8).await;
+                self.res(mmu, 2, C);
             }
             RES_2_D => {
-                clock.cycles(8).await;
-                self.res(2, D)?;
+                clock::ticks(8).await;
+                self.res(mmu, 2, D);
             }
             RES_2_E => {
-                clock.cycles(8).await;
-                self.res(2, E)?;
+                clock::ticks(8).await;
+                self.res(mmu, 2, E);
             }
             RES_2_H => {
-                clock.cycles(8).await;
-                self.res(2, H)?;
+                clock::ticks(8).await;
+                self.res(mmu, 2, H);
             }
             RES_2_L => {
-                clock.cycles(8).await;
-                self.res(2, L)?;
+                clock::ticks(8).await;
+                self.res(mmu, 2, L);
             }
             RES_2_xHLx => {
-                clock.cycles(16).await;
-                self.res(2, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.res(mmu, 2, Operand::HLAddr);
             }
             RES_2_A => {
-                clock.cycles(8).await;
-                self.res(2, A)?;
+                clock::ticks(8).await;
+                self.res(mmu, 2, A);
             }
             RES_3_B => {
-                clock.cycles(8).await;
-                self.res(3, B)?;
+                clock::ticks(8).await;
+                self.res(mmu, 3, B);
             }
             RES_3_C => {
-                clock.cycles(8).await;
-                self.res(3, C)?;
+                clock::ticks(8).await;
+                self.res(mmu, 3, C);
             }
             RES_3_D => {
-                clock.cycles(8).await;
-                self.res(3, D)?;
+                clock::ticks(8).await;
+                self.res(mmu, 3, D);
             }
             RES_3_E => {
-                clock.cycles(8).await;
-                self.res(3, E)?;
+                clock::ticks(8).await;
+                self.res(mmu, 3, E);
             }
             RES_3_H => {
-                clock.cycles(8).await;
-                self.res(3, H)?;
+                clock::ticks(8).await;
+                self.res(mmu, 3, H);
             }
             RES_3_L => {
-                clock.cycles(8).await;
-                self.res(3, L)?;
+                clock::ticks(8).await;
+                self.res(mmu, 3, L);
             }
             RES_3_xHLx => {
-                clock.cycles(16).await;
-                self.res(3, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.res(mmu, 3, Operand::HLAddr);
             }
             RES_3_A => {
-                clock.cycles(8).await;
-                self.res(3, A)?;
+                clock::ticks(8).await;
+                self.res(mmu, 3, A);
             }
             RES_4_B => {
-                clock.cycles(8).await;
-                self.res(4, B)?;
+                clock::ticks(8).await;
+                self.res(mmu, 4, B);
             }
             RES_4_C => {
-                clock.cycles(8).await;
-                self.res(4, C)?;
+                clock::ticks(8).await;
+                self.res(mmu, 4, C);
             }
             RES_4_D => {
-                clock.cycles(8).await;
-                self.res(4, D)?;
+                clock::ticks(8).await;
+                self.res(mmu, 4, D);
             }
             RES_4_E => {
-                clock.cycles(8).await;
-                self.res(4, E)?;
+                clock::ticks(8).await;
+                self.res(mmu, 4, E);
             }
             RES_4_H => {
-                clock.cycles(8).await;
-                self.res(4, H)?;
+                clock::ticks(8).await;
+                self.res(mmu, 4, H);
             }
             RES_4_L => {
-                clock.cycles(8).await;
-                self.res(4, L)?;
+                clock::ticks(8).await;
+                self.res(mmu, 4, L);
             }
             RES_4_xHLx => {
-                clock.cycles(16).await;
-                self.res(4, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.res(mmu, 4, Operand::HLAddr);
             }
             RES_4_A => {
-                clock.cycles(8).await;
-                self.res(4, A)?;
+                clock::ticks(8).await;
+                self.res(mmu, 4, A);
             }
             RES_5_B => {
-                clock.cycles(8).await;
-                self.res(5, B)?;
+                clock::ticks(8).await;
+                self.res(mmu, 5, B);
             }
             RES_5_C => {
-                clock.cycles(8).await;
-                self.res(5, C)?;
+                clock::ticks(8).await;
+                self.res(mmu, 5, C);
             }
             RES_5_D => {
-                clock.cycles(8).await;
-                self.res(5, D)?;
+                clock::ticks(8).await;
+                self.res(mmu, 5, D);
             }
             RES_5_E => {
-                clock.cycles(8).await;
-                self.res(5, E)?;
+                clock::ticks(8).await;
+                self.res(mmu, 5, E);
             }
             RES_5_H => {
-                clock.cycles(8).await;
-                self.res(5, H)?;
+                clock::ticks(8).await;
+                self.res(mmu, 5, H);
             }
             RES_5_L => {
-                clock.cycles(8).await;
-                self.res(5, L)?;
+                clock::ticks(8).await;
+                self.res(mmu, 5, L);
             }
             RES_5_xHLx => {
-                clock.cycles(16).await;
-                self.res(5, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.res(mmu, 5, Operand::HLAddr);
             }
             RES_5_A => {
-                clock.cycles(8).await;
-                self.res(5, A)?;
+                clock::ticks(8).await;
+                self.res(mmu, 5, A);
             }
             RES_6_B => {
-                clock.cycles(8).await;
-                self.res(6, B)?;
+                clock::ticks(8).await;
+                self.res(mmu, 6, B);
             }
             RES_6_C => {
-                clock.cycles(8).await;
-                self.res(6, C)?;
+                clock::ticks(8).await;
+                self.res(mmu, 6, C);
             }
             RES_6_D => {
-                clock.cycles(8).await;
-                self.res(6, D)?;
+                clock::ticks(8).await;
+                self.res(mmu, 6, D);
             }
             RES_6_E => {
-                clock.cycles(8).await;
-                self.res(6, E)?;
+                clock::ticks(8).await;
+                self.res(mmu, 6, E);
             }
             RES_6_H => {
-                clock.cycles(8).await;
-                self.res(6, H)?;
+                clock::ticks(8).await;
+                self.res(mmu, 6, H);
             }
             RES_6_L => {
-                clock.cycles(8).await;
-                self.res(6, L)?;
+                clock::ticks(8).await;
+                self.res(mmu, 6, L);
             }
             RES_6_xHLx => {
-                clock.cycles(16).await;
-                self.res(6, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.res(mmu, 6, Operand::HLAddr);
             }
             RES_6_A => {
-                clock.cycles(8).await;
-                self.res(6, A)?;
+                clock::ticks(8).await;
+                self.res(mmu, 6, A);
             }
             RES_7_B => {
-                clock.cycles(8).await;
-                self.res(7, B)?;
+                clock::ticks(8).await;
+                self.res(mmu, 7, B);
             }
             RES_7_C => {
-                clock.cycles(8).await;
-                self.res(7, C)?;
+                clock::ticks(8).await;
+                self.res(mmu, 7, C);
             }
             RES_7_D => {
-                clock.cycles(8).await;
-                self.res(7, D)?;
+                clock::ticks(8).await;
+                self.res(mmu, 7, D);
             }
             RES_7_E => {
-                clock.cycles(8).await;
-                self.res(7, E)?;
+                clock::ticks(8).await;
+                self.res(mmu, 7, E);
             }
             RES_7_H => {
-                clock.cycles(8).await;
-                self.res(7, H)?;
+                clock::ticks(8).await;
+                self.res(mmu, 7, H);
             }
             RES_7_L => {
-                clock.cycles(8).await;
-                self.res(7, L)?;
+                clock::ticks(8).await;
+                self.res(mmu, 7, L);
             }
             RES_7_xHLx => {
-                clock.cycles(16).await;
-                self.res(7, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.res(mmu, 7, Operand::HLAddr);
             }
             RES_7_A => {
-                clock.cycles(8).await;
-                self.res(7, A)?;
+                clock::ticks(8).await;
+                self.res(mmu, 7, A);
             }
             SET_0_B => {
-                clock.cycles(8).await;
-                self.set(0, B)?;
+                clock::ticks(8).await;
+                self.set(mmu, 0, B);
             }
             SET_0_C => {
-                clock.cycles(8).await;
-                self.set(0, C)?;
+                clock::ticks(8).await;
+                self.set(mmu, 0, C);
             }
             SET_0_D => {
-                clock.cycles(8).await;
-                self.set(0, D)?;
+                clock::ticks(8).await;
+                self.set(mmu, 0, D);
             }
             SET_0_E => {
-                clock.cycles(8).await;
-                self.set(0, E)?;
+                clock::ticks(8).await;
+                self.set(mmu, 0, E);
             }
             SET_0_H => {
-                clock.cycles(8).await;
-                self.set(0, H)?;
+                clock::ticks(8).await;
+                self.set(mmu, 0, H);
             }
             SET_0_L => {
-                clock.cycles(8).await;
-                self.set(0, L)?;
+                clock::ticks(8).await;
+                self.set(mmu, 0, L);
             }
             SET_0_xHLx => {
-                clock.cycles(16).await;
-                self.set(0, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.set(mmu, 0, Operand::HLAddr);
             }
             SET_0_A => {
-                clock.cycles(8).await;
-                self.set(0, A)?;
+                clock::ticks(8).await;
+                self.set(mmu, 0, A);
             }
             SET_1_B => {
-                clock.cycles(8).await;
-                self.set(1, B)?;
+                clock::ticks(8).await;
+                self.set(mmu, 1, B);
             }
             SET_1_C => {
-                clock.cycles(8).await;
-                self.set(1, C)?;
+                clock::ticks(8).await;
+                self.set(mmu, 1, C);
             }
             SET_1_D => {
-                clock.cycles(8).await;
-                self.set(1, D)?;
+                clock::ticks(8).await;
+                self.set(mmu, 1, D);
             }
             SET_1_E => {
-                clock.cycles(8).await;
-                self.set(1, E)?;
+                clock::ticks(8).await;
+                self.set(mmu, 1, E);
             }
             SET_1_H => {
-                clock.cycles(8).await;
-                self.set(1, H)?;
+                clock::ticks(8).await;
+                self.set(mmu, 1, H);
             }
             SET_1_L => {
-                clock.cycles(8).await;
-                self.set(1, L)?;
+                clock::ticks(8).await;
+                self.set(mmu, 1, L);
             }
             SET_1_xHLx => {
-                clock.cycles(16).await;
-                self.set(1, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.set(mmu, 1, Operand::HLAddr);
             }
             SET_1_A => {
-                clock.cycles(8).await;
-                self.set(1, A)?;
+                clock::ticks(8).await;
+                self.set(mmu, 1, A);
             }
             SET_2_B => {
-                clock.cycles(8).await;
-                self.set(2, B)?;
+                clock::ticks(8).await;
+                self.set(mmu, 2, B);
             }
             SET_2_C => {
-                clock.cycles(8).await;
-                self.set(2, C)?;
+                clock::ticks(8).await;
+                self.set(mmu, 2, C);
             }
             SET_2_D => {
-                clock.cycles(8).await;
-                self.set(2, D)?;
+                clock::ticks(8).await;
+                self.set(mmu, 2, D);
             }
             SET_2_E => {
-                clock.cycles(8).await;
-                self.set(2, E)?;
+                clock::ticks(8).await;
+                self.set(mmu, 2, E);
             }
             SET_2_H => {
-                clock.cycles(8).await;
-                self.set(2, H)?;
+                clock::ticks(8).await;
+                self.set(mmu, 2, H);
             }
             SET_2_L => {
-                clock.cycles(8).await;
-                self.set(2, L)?;
+                clock::ticks(8).await;
+                self.set(mmu, 2, L);
             }
             SET_2_xHLx => {
-                clock.cycles(16).await;
-                self.set(2, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.set(mmu, 2, Operand::HLAddr);
             }
             SET_2_A => {
-                clock.cycles(8).await;
-                self.set(2, A)?;
+                clock::ticks(8).await;
+                self.set(mmu, 2, A);
             }
             SET_3_B => {
-                clock.cycles(8).await;
-                self.set(3, B)?;
+                clock::ticks(8).await;
+                self.set(mmu, 3, B);
             }
             SET_3_C => {
-                clock.cycles(8).await;
-                self.set(3, C)?;
+                clock::ticks(8).await;
+                self.set(mmu, 3, C);
             }
             SET_3_D => {
-                clock.cycles(8).await;
-                self.set(3, D)?;
+                clock::ticks(8).await;
+                self.set(mmu, 3, D);
             }
             SET_3_E => {
-                clock.cycles(8).await;
-                self.set(3, E)?;
+                clock::ticks(8).await;
+                self.set(mmu, 3, E);
             }
             SET_3_H => {
-                clock.cycles(8).await;
-                self.set(3, H)?;
+                clock::ticks(8).await;
+                self.set(mmu, 3, H);
             }
             SET_3_L => {
-                clock.cycles(8).await;
-                self.set(3, L)?;
+                clock::ticks(8).await;
+                self.set(mmu, 3, L);
             }
             SET_3_xHLx => {
-                clock.cycles(16).await;
-                self.set(3, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.set(mmu, 3, Operand::HLAddr);
             }
             SET_3_A => {
-                clock.cycles(8).await;
-                self.set(3, A)?;
+                clock::ticks(8).await;
+                self.set(mmu, 3, A);
             }
             SET_4_B => {
-                clock.cycles(8).await;
-                self.set(4, B)?;
+                clock::ticks(8).await;
+                self.set(mmu, 4, B);
             }
             SET_4_C => {
-                clock.cycles(8).await;
-                self.set(4, C)?;
+                clock::ticks(8).await;
+                self.set(mmu, 4, C);
             }
             SET_4_D => {
-                clock.cycles(8).await;
-                self.set(4, D)?;
+                clock::ticks(8).await;
+                self.set(mmu, 4, D);
             }
             SET_4_E => {
-                clock.cycles(8).await;
-                self.set(4, E)?;
+                clock::ticks(8).await;
+                self.set(mmu, 4, E);
             }
             SET_4_H => {
-                clock.cycles(8).await;
-                self.set(4, H)?;
+                clock::ticks(8).await;
+                self.set(mmu, 4, H);
             }
             SET_4_L => {
-                clock.cycles(8).await;
-                self.set(4, L)?;
+                clock::ticks(8).await;
+                self.set(mmu, 4, L);
             }
             SET_4_xHLx => {
-                clock.cycles(16).await;
-                self.set(4, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.set(mmu, 4, Operand::HLAddr);
             }
             SET_4_A => {
-                clock.cycles(8).await;
-                self.set(4, A)?;
+                clock::ticks(8).await;
+                self.set(mmu, 4, A);
             }
             SET_5_B => {
-                clock.cycles(8).await;
-                self.set(5, B)?;
+                clock::ticks(8).await;
+                self.set(mmu, 5, B);
             }
             SET_5_C => {
-                clock.cycles(8).await;
-                self.set(5, C)?;
+                clock::ticks(8).await;
+                self.set(mmu, 5, C);
             }
             SET_5_D => {
-                clock.cycles(8).await;
-                self.set(5, D)?;
+                clock::ticks(8).await;
+                self.set(mmu, 5, D);
             }
             SET_5_E => {
-                clock.cycles(8).await;
-                self.set(5, E)?;
+                clock::ticks(8).await;
+                self.set(mmu, 5, E);
             }
             SET_5_H => {
-                clock.cycles(8).await;
-                self.set(5, H)?;
+                clock::ticks(8).await;
+                self.set(mmu, 5, H);
             }
             SET_5_L => {
-                clock.cycles(8).await;
-                self.set(5, L)?;
+                clock::ticks(8).await;
+                self.set(mmu, 5, L);
             }
             SET_5_xHLx => {
-                clock.cycles(16).await;
-                self.set(5, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.set(mmu, 5, Operand::HLAddr);
             }
             SET_5_A => {
-                clock.cycles(8).await;
-                self.set(5, A)?;
+                clock::ticks(8).await;
+                self.set(mmu, 5, A);
             }
             SET_6_B => {
-                clock.cycles(8).await;
-                self.set(6, B)?;
+                clock::ticks(8).await;
+                self.set(mmu, 6, B);
             }
             SET_6_C => {
-                clock.cycles(8).await;
-                self.set(6, C)?;
+                clock::ticks(8).await;
+                self.set(mmu, 6, C);
             }
             SET_6_D => {
-                clock.cycles(8).await;
-                self.set(6, D)?;
+                clock::ticks(8).await;
+                self.set(mmu, 6, D);
             }
             SET_6_E => {
-                clock.cycles(8).await;
-                self.set(6, E)?;
+                clock::ticks(8).await;
+                self.set(mmu, 6, E);
             }
             SET_6_H => {
-                clock.cycles(8).await;
-                self.set(6, H)?;
+                clock::ticks(8).await;
+                self.set(mmu, 6, H);
             }
             SET_6_L => {
-                clock.cycles(8).await;
-                self.set(6, L)?;
+                clock::ticks(8).await;
+                self.set(mmu, 6, L);
             }
             SET_6_xHLx => {
-                clock.cycles(16).await;
-                self.set(6, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.set(mmu, 6, Operand::HLAddr);
             }
             SET_6_A => {
-                clock.cycles(8).await;
-                self.set(6, A)?;
+                clock::ticks(8).await;
+                self.set(mmu, 6, A);
             }
             SET_7_B => {
-                clock.cycles(8).await;
-                self.set(7, B)?;
+                clock::ticks(8).await;
+                self.set(mmu, 7, B);
             }
             SET_7_C => {
-                clock.cycles(8).await;
-                self.set(7, C)?;
+                clock::ticks(8).await;
+                self.set(mmu, 7, C);
             }
             SET_7_D => {
-                clock.cycles(8).await;
-                self.set(7, D)?;
+                clock::ticks(8).await;
+                self.set(mmu, 7, D);
             }
             SET_7_E => {
-                clock.cycles(8).await;
-                self.set(7, E)?;
+                clock::ticks(8).await;
+                self.set(mmu, 7, E);
             }
             SET_7_H => {
-                clock.cycles(8).await;
-                self.set(7, H)?;
+                clock::ticks(8).await;
+                self.set(mmu, 7, H);
             }
             SET_7_L => {
-                clock.cycles(8).await;
-                self.set(7, L)?;
+                clock::ticks(8).await;
+                self.set(mmu, 7, L);
             }
             SET_7_xHLx => {
-                clock.cycles(16).await;
-                self.set(7, Operand::HLAddr)?;
+                clock::ticks(16).await;
+                self.set(mmu, 7, Operand::HLAddr);
             }
             SET_7_A => {
-                clock.cycles(8).await;
-                self.set(7, A)?;
+                clock::ticks(8).await;
+                self.set(mmu, 7, A);
+            }
+        }
+    }
+
+    fn decode_interrupt(&mut self, mmu: &mut MMU<'_>, ir: u8) {
+        use Interrupt::*;
+
+        for bit in (VBlank as u8)..=(Joypad as u8) {
+            if ir & (1 << bit) != 0 {
+                self.interrupts_enabled = false;
+
+                self.push(mmu, self.pc);
+
+                let interrupt = unsafe { std::mem::transmute::<u8, Interrupt>(bit) };
+
+                self.pc = match interrupt {
+                    VBlank => 0x40,
+                    LCD_Stat => 0x48,
+                    Timer => 0x50,
+                    Serial => 0x58,
+                    Joypad => 0x60,
+                };
+
+                return;
             }
         }
 
-        Ok(())
+        unreachable!("Incorrect interrupt handling")
     }
+}
+
+#[allow(non_camel_case_types)]
+#[repr(u8)]
+pub enum Interrupt {
+    VBlank,
+    LCD_Stat,
+    Timer,
+    Serial,
+    Joypad,
 }
 
 #[repr(u8)]
@@ -2645,6 +2672,7 @@ enum R16 {
     SP = 7,
 }
 
+#[derive(Debug)]
 struct Registers([u8; 9]);
 
 impl Registers {
@@ -2681,6 +2709,7 @@ enum Flag {
     C,
 }
 
+#[derive(Debug)]
 struct Flags {
     z: bool,
     n: bool,
@@ -2758,24 +2787,21 @@ impl IndexMut<Flag> for Flags {
 enum Operand {
     HLAddr,
     Reg(R8),
-    Immediate,
 }
 
 impl Operand {
-    fn into_val(self, cpu: &mut CPU) -> Result<u8, MemoryAccessError> {
-        Ok(match self {
-            Operand::Reg(r) => cpu.reg.r8(r),
-            Operand::HLAddr => cpu.mem.get8(cpu.reg.r16(R16::HL))?,
-            Operand::Immediate => cpu.read8()?,
-        })
+    fn read(&self, cpu: &mut CPU, mmu: &MMU) -> u8 {
+        match self {
+            Operand::Reg(r) => cpu.reg.r8(*r),
+            Operand::HLAddr => mmu.read8(cpu.reg.r16(R16::HL)),
+        }
     }
 
-    fn into_ref(self, cpu: &mut CPU) -> Result<&mut u8, MemoryAccessError> {
-        Ok(match self {
-            Operand::Reg(r) => cpu.reg.r8_mut(r),
-            Operand::HLAddr => cpu.mem.get8_mut(cpu.reg.r16(R16::HL))?,
-            Operand::Immediate => unreachable!(), // TODO: Maybe unchecked?
-        })
+    fn write(&mut self, cpu: &mut CPU, mmu: &mut MMU, value: u8) {
+        match self {
+            Operand::Reg(r) => *cpu.reg.r8_mut(*r) = value,
+            Operand::HLAddr => mmu.write8(cpu.reg.r16(R16::HL), value),
+        }
     }
 }
 
@@ -2787,6 +2813,7 @@ impl From<R8> for Operand {
 
 #[allow(non_camel_case_types, dead_code)]
 #[repr(u8)]
+#[derive(Debug)]
 enum Instruction {
     NOP,
     LD_BC_d16,
@@ -3049,6 +3076,7 @@ enum Instruction {
 /// Preceeded by a 0xCB instruction
 #[allow(non_camel_case_types, dead_code)]
 #[repr(u8)]
+#[derive(Debug)]
 enum CBInstruction {
     RLC_B,
     RLC_C,

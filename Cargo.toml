@@ -10,3 +10,6 @@ edition = "2018"
 static_assertions = "1.1.0"
 futures = "0.3"
 arrayvec = "0.5"
+num_enum = "0.4" # Insane amount of dependencies for this functionality...
+winapi = { version = "0.3", features = ["winuser", "windef", "minwindef", "libloaderapi", "errhandlingapi", "ntdef", "d3d11", "d3dcommon", "winerror", "dxgi1_2", "unknwnbase", "dxgiformat", "dxgitype", "dxgi"] }
+wio = "0.2"

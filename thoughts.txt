@@ -1,0 +1,25 @@
+# Why not have memory return a mutable reference to the memory location instead of having a `.write` method?
+
+Returning a mutable reference would indeed be more ergonomic, but it comes with some problems:
+
+Some memory locations do not return the same value on a read that was written to them just moments before with a write.
+Mutable references cannot replicate this behavior. It would be possible to create a custom write-only wrapper, but
+that already defeats the ergonomic advantages of returning a mutable reference.
+
+There is also the question about what to do with 'illegal writes'. What reference would a 16bit write to location 0xFFFF
+return? For obvious reasons, we cannot allow the caller to write beyond memory bounds. The usual answer to this is
+to return an error instead of a reference, but that means that the call-site needs to resolve the situation, which
+feels wrong.
+
+# Why is DMG and CGB functionality not separated via the type system?
+
+Doing this would indeed help with some code. It would be impossible, for example, to compile an emulator that runs a CGB
+game using DMG memory mapping.
+
+TODO: Still thinking about it. Suspicions: 
+- CGB can completely emulate DMG without much hassle
+- Performance gains minimal
+
+# Why is your MMU so complicated?
+
+- Avoid pointer chasing. Every mem access behind at most 1 pointer
