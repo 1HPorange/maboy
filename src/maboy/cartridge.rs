@@ -1,4 +1,4 @@
-use super::mmu::CartridgeMem;
+use super::mmu::*;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
 use std::path::Path;
@@ -7,12 +7,12 @@ const TITLE_START: usize = 0x134;
 const CARTRIDGE_TYPE: usize = 0x147;
 
 pub struct Cartridge {
-    mem: CartridgeMem,
+    pub mem: CartridgeMem,
 }
 
 impl Cartridge {
     pub fn from_rom<P: AsRef<Path>>(path: P) -> Result<Cartridge, CartridgeError> {
-        let rom = std::fs::read(path)?;
+        let mut rom = std::fs::read(path)?;
 
         let title_len = rom
             .iter()
@@ -42,12 +42,14 @@ impl Cartridge {
             panic!("Checksum incorrect");
         }
 
-        unimplemented!()
-        // Ok(Cartridge {
-        //     mem: CartridgeMem {
-
-        //     }
-        // })
+        // TODO: Make this work for other things than tetris...
+        let rom_1 = rom.split_off(CROM_BANK_LEN);
+        Ok(Cartridge {
+            mem: CartridgeMem {
+                crom_banks: vec![rom.into_boxed_slice(), rom_1.into_boxed_slice()],
+                cram_banks: vec![],
+            },
+        })
     }
 }
 

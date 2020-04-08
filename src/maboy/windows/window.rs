@@ -14,8 +14,8 @@ use winapi::um::winuser::*;
 // TODO: Rewrite to use WindowManager
 
 // Note: These are the dimensions of the *client area* of the window, not the window itself
-const WND_WIDTH: c_int = 160 * 4;
-const WND_HEIGHT: c_int = 144 * 4;
+const WND_WIDTH: c_int = 256; //160 * 4;
+const WND_HEIGHT: c_int = 256; //144 * 4;
 
 static WND_CLASS_CREATED: AtomicBool = AtomicBool::new(false);
 
@@ -83,6 +83,7 @@ impl Window {
         }
     }
 
+    // TODO: You should go on the factory, not the window!
     pub fn handle_msgs(&self) -> bool {
         unsafe {
             let mut msg: MSG = mem::MaybeUninit::uninit().assume_init();

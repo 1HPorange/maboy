@@ -10,6 +10,7 @@ use std::ops::{Index, IndexMut};
 // > There is a hardware bug on Gameboy Classic that causes the instruction following a STOP to be skipped.
 // > So Nintendo started to tell developers to add a NOP always after a STOP.
 const SKIP_INSTR_AFTER_STOP: bool = true;
+const PRINT_INSTR: bool = false;
 
 #[derive(Debug)]
 pub struct CPU {
@@ -31,7 +32,7 @@ impl CPU {
         }
     }
 
-    pub async fn run(&mut self, mmu: &mut MMU<'_>) {
+    pub async fn step(&mut self, mmu: &mut MMU<'_>) {
         loop {
             // If we need to handle an interrupt, we skip normal instruction decoding
             let interrupts_requested = mmu.read8(0xFF0F) & mmu.read8(0xFFFF) & 0x1F;
@@ -43,11 +44,13 @@ impl CPU {
                 sa::const_assert_eq!(Instruction::RST_38H as u8, std::u8::MAX);
                 let instruction: Instruction = unsafe { std::mem::transmute(self.read8(mmu)) };
 
-                // println!(
-                //     "Executing {:?} with PC now at {:#06X}",
-                //     instruction, self.pc
-                // );
-                // dbg!(&self);
+                if PRINT_INSTR {
+                    if instruction != Instruction::PREFIX_CB {
+                        println!("{:#06X}: {:?}", self.pc - 1, instruction);
+                    } else {
+                        print!("{:#06X}: ", self.pc - 1);
+                    }
+                }
 
                 self.execute(instruction, mmu).await;
             }
@@ -248,8 +251,8 @@ impl CPU {
 
     fn push(&mut self, mmu: &mut MMU, val: u16) {
         let sp = self.reg.r16_mut(R16::SP);
-        mmu.write16(*sp, val);
         *sp = sp.wrapping_sub(2);
+        mmu.write16(*sp, val);
     }
 
     async fn execute(&mut self, instruction: Instruction, mmu: &mut MMU<'_>) {
@@ -260,7 +263,7 @@ impl CPU {
         match instruction {
             NOP => {
                 clock::ticks(4).await;
-                panic!("You did it! You reached NOP!")
+                panic!("You did it! You reached NOP at PC = {:#06X}!", self.pc - 1);
             }
             LD_BC_d16 => {
                 clock::ticks(12).await;
@@ -290,6 +293,9 @@ impl CPU {
             RLCA => {
                 clock::ticks(4).await;
                 let target = self.reg.r8_mut(A);
+                self.flags[Flag::Z] = false;
+                self.flags[Flag::N] = false;
+                self.flags[Flag::H] = false;
                 self.flags[Flag::C] = (*target & 0b1000_0000) != 0;
                 *target = target.rotate_left(1);
             }
@@ -325,6 +331,9 @@ impl CPU {
             RRCA => {
                 clock::ticks(4).await;
                 let target = self.reg.r8_mut(A);
+                self.flags[Flag::Z] = false;
+                self.flags[Flag::N] = false;
+                self.flags[Flag::H] = false;
                 self.flags[Flag::C] = (*target & 1) != 0;
                 *target = target.rotate_right(1);
             }
@@ -363,6 +372,9 @@ impl CPU {
                 // Can't us self.rl because it sets the zero flag
                 clock::ticks(4).await;
                 let target = self.reg.r8_mut(A);
+                self.flags[Flag::Z] = false;
+                self.flags[Flag::N] = false;
+                self.flags[Flag::H] = false;
                 let c = self.flags[Flag::C];
                 self.flags[Flag::C] = (*target & 0b1000_0000) != 0;
                 *target <<= 1;
@@ -404,6 +416,9 @@ impl CPU {
                 // Can't us self.rr because it sets the zero flag
                 clock::ticks(4).await;
                 let target = self.reg.r8_mut(A);
+                self.flags[Flag::Z] = false;
+                self.flags[Flag::N] = false;
+                self.flags[Flag::H] = false;
                 let c = self.flags[Flag::C];
                 self.flags[Flag::C] = (*target & 0b1) != 0;
                 *target >>= 1;
@@ -1183,6 +1198,9 @@ impl CPU {
                 sa::const_assert_eq!(CBInstruction::SET_7_A as u8, std::u8::MAX);
                 let cb_instruction: CBInstruction = unsafe { std::mem::transmute(self.read8(mmu)) };
 
+                if PRINT_INSTR {
+                    println!("{:?}", cb_instruction);
+                }
                 self.execute_cb(cb_instruction, mmu).await;
             }
             CALL_Z_a16 => {
@@ -1197,8 +1215,9 @@ impl CPU {
             }
             CALL_a16 => {
                 clock::ticks(24).await;
+                let target = self.read16(mmu); // TODO: Maybe make PC changes explicit? Hmmm. Avoids hardcore bugs
                 self.push(mmu, self.pc);
-                self.pc = self.read16(mmu);
+                self.pc = target;
             }
             ADC_A_d8 => {
                 clock::ticks(8).await;
@@ -1539,6 +1558,8 @@ impl CPU {
 
         let new = old >> 1;
 
+        // TODO: Man this shit's ugly... fix it
+        target.write(self, mmu, new);
         self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
@@ -2625,6 +2646,10 @@ impl CPU {
 
                 let interrupt = unsafe { std::mem::transmute::<u8, Interrupt>(bit) };
 
+                // Reset the interrupt bit TODO: This feels weird... The whole read/write story feels weird. Maybe return refs to a garbage ram val on illegal adresses?
+                mmu.write8(0xFF0F, mmu.read8(0xFF0F) & !(1 << bit));
+                dbg!("Executing interrupt {:?}", &interrupt);
+
                 self.pc = match interrupt {
                     VBlank => 0x40,
                     LCD_Stat => 0x48,
@@ -2641,26 +2666,30 @@ impl CPU {
     }
 }
 
+#[derive(Debug)]
 #[allow(non_camel_case_types)]
 #[repr(u8)]
 pub enum Interrupt {
-    VBlank,
-    LCD_Stat,
-    Timer,
-    Serial,
-    Joypad,
+    VBlank = 0,
+    LCD_Stat = 1,
+    Timer = 2,
+    Serial = 3,
+    Joypad = 4,
 }
 
 #[repr(u8)]
 #[derive(Copy, Clone)]
+/// The weird numbering was chosen since the 16 bit register
+/// accesses automatically have correct endianness this way
+/// and we can also avoid excessive bit-shifting
 enum R8 {
-    A,
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
+    A = 0,
+    B = 2,
+    C = 1,
+    D = 4,
+    E = 3,
+    H = 6,
+    L = 5,
 }
 
 #[repr(u8)]
@@ -2678,7 +2707,10 @@ struct Registers([u8; 9]);
 impl Registers {
     fn new() -> Registers {
         // Initial values according to bgb.bircd.org/pandocs.htm#powerupsequence
-        Registers([0x01, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D, 0xFF, 0xFE])
+        //Registers([0x01, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D, 0xFF, 0xFE])
+
+        // Let's try without
+        Registers([0; 9])
     }
 
     fn r8(&self, r: R8) -> u8 {
@@ -2813,7 +2845,7 @@ impl From<R8> for Operand {
 
 #[allow(non_camel_case_types, dead_code)]
 #[repr(u8)]
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Instruction {
     NOP,
     LD_BC_d16,

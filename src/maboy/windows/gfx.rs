@@ -1,5 +1,6 @@
 use super::hresult_error::*;
 use super::window::Window;
+use crate::maboy::mem_frame::{MemFrame, Pixel};
 use std::mem::MaybeUninit;
 use std::ptr;
 use winapi::shared::dxgi::*;
@@ -135,21 +136,22 @@ impl GfxDevice {
             viewport.MaxDepth = 1.0;
 
             // Create RTV for backbuffer
-            let mut rtv = ptr::null_mut();
+            let mut backbuffer_rtv = ptr::null_mut();
             self.d
                 .CreateRenderTargetView(
-                    backbuffer.up::<ID3D11Resource>().as_raw(),
+                    backbuffer.as_raw() as *mut ID3D11Resource, // TODO: .up::<ID3D11Resource>() ???
                     ptr::null(),
-                    &mut rtv,
+                    &mut backbuffer_rtv,
                 )
                 .into_result()?;
-            let rtv = ComPtr::from_raw(rtv);
+            let backbuffer_rtv = ComPtr::from_raw(backbuffer_rtv);
 
             Ok(GfxWindow {
                 device: self,
                 window,
                 swap_chain,
-                rtv,
+                backbuffer,
+                backbuffer_rtv,
                 viewport,
             })
         }
@@ -160,18 +162,22 @@ pub struct GfxWindow<'d, 'w> {
     device: &'d GfxDevice,
     window: &'w Window,
     swap_chain: ComPtr<IDXGISwapChain1>,
-    rtv: ComPtr<ID3D11RenderTargetView>,
+    backbuffer: ComPtr<ID3D11Texture2D>,
+    backbuffer_rtv: ComPtr<ID3D11RenderTargetView>,
     viewport: D3D11_VIEWPORT,
 }
 
 impl<'d, 'w> GfxWindow<'d, 'w> {
     pub fn next_frame(&mut self) -> GfxFrame<'_, 'd, 'w> {
         unsafe {
+            // Note: Seem like we don't need this stuff. I'll leave it out for now
+
             // Might need to set depth-stencil in here at some point
-            self.device
-                .dc
-                .OMSetRenderTargets(1, &self.rtv.as_raw(), ptr::null_mut());
-            self.device.dc.RSSetViewports(1, &self.viewport);
+            // self.device
+            //     .dc
+            //     .OMSetRenderTargets(1, &self.backbuffer_rtv.as_raw(), ptr::null_mut());
+
+            // self.device.dc.RSSetViewports(1, &self.viewport);
 
             GfxFrame(self)
         }
@@ -187,20 +193,58 @@ impl GfxFrame<'_, '_, '_> {
             // m_d3dContext->ClearDepthStencilView(m_depthStencilView.Get(),
             //     D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-            // Appararently, on XBox One, this need to go BEFORE OMSetRenderTargets: https://github.com/microsoft/DirectXTK/wiki/The-basic-game-loop
+            // Appararently, on Xbox One, this need to go BEFORE OMSetRenderTargets: https://github.com/microsoft/DirectXTK/wiki/The-basic-game-loop
             self.0
                 .device
                 .dc
-                .ClearRenderTargetView(self.0.rtv.as_raw(), color);
+                .ClearRenderTargetView(self.0.backbuffer_rtv.as_raw(), color);
         }
     }
 
-    pub fn present(self) -> Result<(), HResultError> {
+    pub fn copy_from_slice(&mut self, data: &[Pixel]) {
+        // TODO: Update only the region that is rendered!!! Basically take scx and scy and handle it correctly
+        unsafe {
+            // TODO: Assert lengths
+            self.0.device.dc.UpdateSubresource(
+                self.0.backbuffer.as_raw() as *mut ID3D11Resource,
+                0,
+                ptr::null(),
+                data as *const _ as *const std::ffi::c_void,
+                256 * 4, // TODO: Make all this a little smarter...
+                0,
+            );
+        }
+    }
+
+    pub fn present(self, blocking: bool) -> Result<(), HResultError> {
         unsafe {
             // TODO: Read up on whatever sync intervals are for DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL
-            self.0.swap_chain.Present(0, 0).into_result()?;
 
-            Ok(())
+            let mut flags = DXGI_PRESENT_ALLOW_TEARING;
+
+            if !blocking {
+                flags |= DXGI_PRESENT_DO_NOT_WAIT;
+            }
+
+            let result = self
+                .0
+                .swap_chain
+                .Present(0, flags) // TODO: Really read up on the tearing docs at https://docs.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-present
+                .into_result();
+
+            if matches!(result, Err(HResultError(DXGI_ERROR_WAS_STILL_DRAWING))) {
+                return Ok(());
+            } else {
+                result
+            }
         }
     }
 }
+
+// pub struct GfxCPUTexture(ComPtr<ID3D11Texture2D>);
+
+// impl GfxCPUTexture {
+//     fn upload_from_slice(&mut self, data: &[Pixel]) {
+
+//     }
+// }

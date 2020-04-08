@@ -1,7 +1,7 @@
 use winapi::shared::winerror::*;
 
 #[derive(Debug)]
-pub struct HResultError(HRESULT);
+pub struct HResultError(pub HRESULT);
 
 pub trait IntoResult: Sized {
     fn into_result(self) -> Result<(), HResultError>;

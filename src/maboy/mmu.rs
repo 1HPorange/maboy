@@ -1,3 +1,4 @@
+use super::cpu::Interrupt;
 use arrayvec::ArrayVec;
 use std::ops::IndexMut;
 use std::ptr::NonNull;
@@ -77,7 +78,7 @@ impl<'a> MMU<'a> {
         }
     }
 
-    fn ref8(&self, addr: u16) -> &u8 {
+    pub fn ref8(&self, addr: u16) -> &u8 {
         let addr = addr as usize;
 
         match addr & 0xF000 {
@@ -121,11 +122,11 @@ impl<'a> MMU<'a> {
         }
     }
 
-    fn mut8(&mut self, addr: u16) -> &mut u8 {
+    pub fn mut8(&mut self, addr: u16) -> &mut u8 {
         let addr = addr as usize;
 
         if addr < 0x8000 {
-            panic!("Attempted to write to cartridge ROM");
+            panic!("Attempted to write to cartridge ROM at addr {:#06X}", addr);
         }
 
         match addr & 0xF000 {
@@ -148,19 +149,27 @@ impl<'a> MMU<'a> {
                 if addr < 0xFE00 {
                     panic!("Tried to write into echo RAM");
                 } else {
+                    if addr == 0xFFFF {
+                        println!("Accessed IE register!");
+                    }
                     &mut self.map.upper_ram[addr - 0xFE00]
                 }
             }
             _ => unsafe { std::hint::unreachable_unchecked() },
         }
     }
+
+    // TODO: Think about if this belongs here
+    pub fn request_interrupt(&mut self, ir: Interrupt) {
+        *self.mut8(0xFF0F) |= 1 << ir as u8;
+    }
 }
 
 // TODO: Consider moving these structs
 
 pub struct CartridgeMem {
-    crom_banks: Vec<Box<[u8]>>,
-    cram_banks: Vec<Box<[u8]>>,
+    pub crom_banks: Vec<Box<[u8]>>,
+    pub cram_banks: Vec<Box<[u8]>>,
 }
 
 impl CartridgeMem {
@@ -184,43 +193,47 @@ impl BuiltinMem {
         let mut upper_ram = vec![0; UPPER_RAM_LEN].into_boxed_slice();
 
         // TODO: According to http://www.codeslinger.co.uk/pages/projects/gameboy/hardware.html
+
+        // TODO Figure out WTH this is and if I even need it
         // m_ProgramCounter=0x100 ;
         // m_RegisterAF=0x01B0;
         // m_RegisterBC=0x0013;
         // m_RegisterDE=0x00D8;
         // m_RegisterHL=0x014D;
         // m_StackPointer=0xFFFE;
-        upper_ram[0xFF05 - 0xFE00] = 0x00;
-        upper_ram[0xFF06 - 0xFE00] = 0x00;
-        upper_ram[0xFF07 - 0xFE00] = 0x00;
-        upper_ram[0xFF10 - 0xFE00] = 0x80;
-        upper_ram[0xFF11 - 0xFE00] = 0xBF;
-        upper_ram[0xFF12 - 0xFE00] = 0xF3;
-        upper_ram[0xFF14 - 0xFE00] = 0xBF;
-        upper_ram[0xFF16 - 0xFE00] = 0x3F;
-        upper_ram[0xFF17 - 0xFE00] = 0x00;
-        upper_ram[0xFF19 - 0xFE00] = 0xBF;
-        upper_ram[0xFF1A - 0xFE00] = 0x7F;
-        upper_ram[0xFF1B - 0xFE00] = 0xFF;
-        upper_ram[0xFF1C - 0xFE00] = 0x9F;
-        upper_ram[0xFF1E - 0xFE00] = 0xBF;
-        upper_ram[0xFF20 - 0xFE00] = 0xFF;
-        upper_ram[0xFF21 - 0xFE00] = 0x00;
-        upper_ram[0xFF22 - 0xFE00] = 0x00;
-        upper_ram[0xFF23 - 0xFE00] = 0xBF;
-        upper_ram[0xFF24 - 0xFE00] = 0x77;
-        upper_ram[0xFF25 - 0xFE00] = 0xF3;
-        upper_ram[0xFF26 - 0xFE00] = 0xF1;
-        upper_ram[0xFF40 - 0xFE00] = 0x91;
-        upper_ram[0xFF42 - 0xFE00] = 0x00;
-        upper_ram[0xFF43 - 0xFE00] = 0x00;
-        upper_ram[0xFF45 - 0xFE00] = 0x00;
-        upper_ram[0xFF47 - 0xFE00] = 0xFC;
-        upper_ram[0xFF48 - 0xFE00] = 0xFF;
-        upper_ram[0xFF49 - 0xFE00] = 0xFF;
-        upper_ram[0xFF4A - 0xFE00] = 0x00;
-        upper_ram[0xFF4B - 0xFE00] = 0x00;
-        upper_ram[0xFFFF - 0xFE00] = 0x00;
+
+        // TODO: Figure out WTH this is and if I even need it
+        // upper_ram[0xFF05 - 0xFE00] = 0x00;
+        // upper_ram[0xFF06 - 0xFE00] = 0x00;
+        // upper_ram[0xFF07 - 0xFE00] = 0x00;
+        // upper_ram[0xFF10 - 0xFE00] = 0x80;
+        // upper_ram[0xFF11 - 0xFE00] = 0xBF;
+        // upper_ram[0xFF12 - 0xFE00] = 0xF3;
+        // upper_ram[0xFF14 - 0xFE00] = 0xBF;
+        // upper_ram[0xFF16 - 0xFE00] = 0x3F;
+        // upper_ram[0xFF17 - 0xFE00] = 0x00;
+        // upper_ram[0xFF19 - 0xFE00] = 0xBF;
+        // upper_ram[0xFF1A - 0xFE00] = 0x7F;
+        // upper_ram[0xFF1B - 0xFE00] = 0xFF;
+        // upper_ram[0xFF1C - 0xFE00] = 0x9F;
+        // upper_ram[0xFF1E - 0xFE00] = 0xBF;
+        // upper_ram[0xFF20 - 0xFE00] = 0xFF;
+        // upper_ram[0xFF21 - 0xFE00] = 0x00;
+        // upper_ram[0xFF22 - 0xFE00] = 0x00;
+        // upper_ram[0xFF23 - 0xFE00] = 0xBF;
+        // upper_ram[0xFF24 - 0xFE00] = 0x77;
+        // upper_ram[0xFF25 - 0xFE00] = 0xF3;
+        // upper_ram[0xFF26 - 0xFE00] = 0xF1;
+        // upper_ram[0xFF40 - 0xFE00] = 0x91;
+        // upper_ram[0xFF42 - 0xFE00] = 0x00;
+        // upper_ram[0xFF43 - 0xFE00] = 0x00;
+        // upper_ram[0xFF45 - 0xFE00] = 0x00;
+        // upper_ram[0xFF47 - 0xFE00] = 0xFC;
+        // upper_ram[0xFF48 - 0xFE00] = 0xFF;
+        // upper_ram[0xFF49 - 0xFE00] = 0xFF;
+        // upper_ram[0xFF4A - 0xFE00] = 0x00;
+        // upper_ram[0xFF4B - 0xFE00] = 0x00;
+        // upper_ram[0xFFFF - 0xFE00] = 0x00;
 
         BuiltinMem {
             vram_banks: vec![vec![0; VRAM_BANK_LEN].into_boxed_slice()],
