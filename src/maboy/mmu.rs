@@ -33,8 +33,11 @@ pub struct MemMap<'a> {
 
 pub struct MMU<'a> {
     map: MemMap<'a>,
+    cartridge: &'a mut CartridgeMem,
+    builtin: &'a mut BuiltinMem,
 }
 
+// TODO: Hande reads/writes of partially readable/writeable adresses correctly. Mostly in 0xFFxx region
 impl<'a> MMU<'a> {
     pub fn TEMP_NEW(
         builtin_mem: &'a mut BuiltinMem,
@@ -55,104 +58,115 @@ impl<'a> MMU<'a> {
             upper_ram: &mut builtin_mem.upper_ram,
         };
 
-        MMU { map }
-    }
-
-    pub fn read8(&self, addr: u16) -> u8 {
-        *self.ref8(addr)
-    }
-
-    pub fn read16(&self, addr: u16) -> u16 {
-        // TODO: Prevent out of bounds reads
-        unsafe { *std::mem::transmute::<&u8, &u16>(self.ref8(addr)) }
-    }
-
-    pub fn write8(&mut self, addr: u16, value: u8) {
-        *self.mut8(addr) = value;
-    }
-
-    pub fn write16(&mut self, addr: u16, value: u16) {
-        // TODO: Prevent out of bounds writes
-        unsafe {
-            *std::mem::transmute::<&mut u8, &mut u16>(self.mut8(addr)) = value;
+        MMU {
+            map,
+            cartridge: cartridge_mem,
+            builtin: builtin_mem,
         }
     }
 
-    pub fn ref8(&self, addr: u16) -> &u8 {
+    /// Will never fail, but yield garbage on failed reads
+    pub fn read8(&self, addr: u16) -> u8 {
+        *self.ref8(addr).unwrap_or(&0xFF) // TODO: Research correct "garbage" returns
+    }
+
+    /// Will never fail, but yield garbage on failed reads
+    pub fn read16(&self, addr: u16) -> u16 {
+        // TODO: Prevent out of bounds reads
+        unsafe {
+            if let Some(const_ref) = self.ref8(addr) {
+                *std::mem::transmute::<&u8, &u16>(const_ref)
+            } else {
+                0xFFFF // TODO: Research correct "garbage" returns
+            }
+        }
+    }
+
+    /// Will never fail, but throw away the bits that are not writeable
+    pub fn write8(&mut self, addr: u16, value: u8) {
+        // TODO: Nicer
+        match addr {
+            0xFF02 => {
+                print!("{}", self.read8(0xFF01) as char);
+            }
+            0xFF50 if value == 1 => {
+                self.unmap_boot_rom();
+            }
+            _ => {
+                if let Some(mut_ref) = self.mut8(addr) {
+                    *mut_ref = value;
+                }
+            }
+        }
+    }
+
+    /// Will never fail, but throw away the bits that are not writeable
+    pub fn write16(&mut self, addr: u16, value: u16) {
+        // TODO: Prevent out of bounds writes
+        // TODO: See what happens on real hardware if you write 16 bit values to SPECIAL 8 bit registers
+        unsafe {
+            if let Some(mut_ref) = self.mut8(addr) {
+                *std::mem::transmute::<&mut u8, &mut u16>(mut_ref) = value;
+            }
+        }
+    }
+
+    pub fn ref8(&self, addr: u16) -> Option<&u8> {
         let addr = addr as usize;
 
         match addr & 0xF000 {
             0x0000 => {
                 if addr < 0x100 {
-                    &self.map.crom_bank_0_low[addr]
+                    Some(&self.map.crom_bank_0_low[addr])
                 } else {
-                    &self.map.crom_bank_0_high[addr]
+                    Some(&self.map.crom_bank_0_high[addr])
                 }
             }
-            0x1000 => &self.map.crom_bank_0_high[addr],
-            0x2000 => &self.map.crom_bank_0_high[addr],
-            0x3000 => &self.map.crom_bank_0_high[addr],
-            0x4000 => &self.map.crom_bank_n[addr - 0x4000],
-            0x5000 => &self.map.crom_bank_n[addr - 0x4000],
-            0x6000 => &self.map.crom_bank_n[addr - 0x4000],
-            0x7000 => &self.map.crom_bank_n[addr - 0x4000],
-            0x8000 => &self.map.vram[addr - 0x8000],
-            0x9000 => &self.map.vram[addr - 0x8000],
-            0xA000 => &self
-                .map
-                .cram
-                .as_ref()
-                .expect("Tried to access cartridge RAM, but it doesn't exist")[addr - 0xA000],
-            0xB000 => &self
-                .map
-                .cram
-                .as_ref()
-                .expect("Tried to access cartridge RAM, but it doesn't exist")[addr - 0xA000],
-            0xC000 => &self.map.wram_bank_0[addr - 0xC000],
-            0xD000 => &self.map.wram_bank_n[addr - 0xD000],
-            0xE000 => panic!("Accessed echo ram - DON'T"),
+            0x1000 => Some(&self.map.crom_bank_0_high[addr]),
+            0x2000 => Some(&self.map.crom_bank_0_high[addr]),
+            0x3000 => Some(&self.map.crom_bank_0_high[addr]),
+            0x4000 => Some(&self.map.crom_bank_n[addr - 0x4000]),
+            0x5000 => Some(&self.map.crom_bank_n[addr - 0x4000]),
+            0x6000 => Some(&self.map.crom_bank_n[addr - 0x4000]),
+            0x7000 => Some(&self.map.crom_bank_n[addr - 0x4000]),
+            0x8000 => Some(&self.map.vram[addr - 0x8000]),
+            0x9000 => Some(&self.map.vram[addr - 0x8000]),
+            0xA000 => self.map.cram.as_ref().map(|cram| &cram[addr - 0xA000]),
+            0xB000 => self.map.cram.as_ref().map(|cram| &cram[addr - 0xA000]),
+            0xC000 => Some(&self.map.wram_bank_0[addr - 0xC000]),
+            0xD000 => Some(&self.map.wram_bank_n[addr - 0xD000]),
+            0xE000 => None, // This is actually a read of echo RAM, so we should let it succeed!
             0xF000 => {
                 if addr < 0xFE00 {
-                    panic!("Accessed echo ram - DON'T");
+                    None // This is actually a read of echo RAM, so we should let it succeed!
                 } else {
-                    &self.map.upper_ram[addr - 0xFE00]
+                    Some(&self.map.upper_ram[addr - 0xFE00])
                 }
             }
             _ => unsafe { std::hint::unreachable_unchecked() },
         }
     }
 
-    pub fn mut8(&mut self, addr: u16) -> &mut u8 {
+    pub fn mut8(&mut self, addr: u16) -> Option<&mut u8> {
         let addr = addr as usize;
 
         if addr < 0x8000 {
-            panic!("Attempted to write to cartridge ROM at addr {:#06X}", addr);
+            return None; // Write to cartridge ROM
         }
 
         match addr & 0xF000 {
-            0x8000 => &mut self.map.vram[addr - 0x8000],
-            0x9000 => &mut self.map.vram[addr - 0x8000],
-            0xA000 => &mut self
-                .map
-                .cram
-                .as_mut()
-                .expect("Tried to write to cartridge RAM, but it doesn't exist")[addr - 0xA000],
-            0xB000 => &mut self
-                .map
-                .cram
-                .as_mut()
-                .expect("Tried to write to cartridge RAM, but it doesn't exist")[addr - 0xA000],
-            0xC000 => &mut self.map.wram_bank_0[addr - 0xC000],
-            0xD000 => &mut self.map.wram_bank_n[addr - 0xD000],
-            0xE000 => panic!("Tried to write into echo RAM"),
+            0x8000 => Some(&mut self.map.vram[addr - 0x8000]),
+            0x9000 => Some(&mut self.map.vram[addr - 0x8000]),
+            0xA000 => self.map.cram.as_mut().map(|cram| &mut cram[addr - 0xA000]),
+            0xB000 => self.map.cram.as_mut().map(|cram| &mut cram[addr - 0xA000]),
+            0xC000 => Some(&mut self.map.wram_bank_0[addr - 0xC000]),
+            0xD000 => Some(&mut self.map.wram_bank_n[addr - 0xD000]),
+            0xE000 => None, // This is actually a write to echo RAM, so we should let it succeed!
             0xF000 => {
                 if addr < 0xFE00 {
-                    panic!("Tried to write into echo RAM");
+                    None // This is actually a write to echo RAM, so we should let it succeed!
                 } else {
-                    if addr == 0xFFFF {
-                        println!("Accessed IE register!");
-                    }
-                    &mut self.map.upper_ram[addr - 0xFE00]
+                    Some(&mut self.map.upper_ram[addr - 0xFE00])
                 }
             }
             _ => unsafe { std::hint::unreachable_unchecked() },
@@ -161,7 +175,13 @@ impl<'a> MMU<'a> {
 
     // TODO: Think about if this belongs here
     pub fn request_interrupt(&mut self, ir: Interrupt) {
-        *self.mut8(0xFF0F) |= 1 << ir as u8;
+        *self.mut8(0xFF0F).unwrap() |= 1 << ir as u8;
+    }
+
+    fn unmap_boot_rom(&mut self) {
+        // TODO: Investigate if this is actually safe, or if we have to use pointers
+        self.map.crom_bank_0_low =
+            unsafe { std::mem::transmute(&self.cartridge.crom_banks[0][..256]) }
     }
 }
 

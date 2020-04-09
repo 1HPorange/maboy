@@ -13,6 +13,8 @@ arrayvec = "0.5"
 num_enum = "0.4" # Insane amount of dependencies for this functionality...
 winapi = { version = "0.3", features = ["winuser", "windef", "minwindef", "libloaderapi", "errhandlingapi", "ntdef", "d3d11", "d3dcommon", "winerror", "dxgi1_2", "unknwnbase", "dxgiformat", "dxgitype", "dxgi"] }
 wio = "0.2"
+# log = "0.4"
+# env_logger = "0.7"
 
 [profile.release]
 debug = true

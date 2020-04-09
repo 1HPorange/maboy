@@ -10,7 +10,11 @@ use std::ops::{Index, IndexMut};
 // > There is a hardware bug on Gameboy Classic that causes the instruction following a STOP to be skipped.
 // > So Nintendo started to tell developers to add a NOP always after a STOP.
 const SKIP_INSTR_AFTER_STOP: bool = true;
-const PRINT_INSTR: bool = false;
+const PRINT_INSTR_MIN: u16 = 0xFFFF; // TODO: Remove
+const LOG_INSTR_FREQ: bool = true;
+static mut LOG_INSTR_FREQ_CNT: u16 = 2000;
+static mut INSTR_FREQ_MAP: [u16; 10] = [0; 10];
+static mut INSTR_FREQ_MAP_IDX: usize = 0;
 
 #[derive(Debug)]
 pub struct CPU {
@@ -44,11 +48,46 @@ impl CPU {
                 sa::const_assert_eq!(Instruction::RST_38H as u8, std::u8::MAX);
                 let instruction: Instruction = unsafe { std::mem::transmute(self.read8(mmu)) };
 
-                if PRINT_INSTR {
+                if self.pc >= PRINT_INSTR_MIN {
                     if instruction != Instruction::PREFIX_CB {
                         println!("{:#06X}: {:?}", self.pc - 1, instruction);
                     } else {
                         print!("{:#06X}: ", self.pc - 1);
+                    }
+                }
+
+                if LOG_INSTR_FREQ {
+                    unsafe {
+                        LOG_INSTR_FREQ_CNT -= 1;
+
+                        if LOG_INSTR_FREQ_CNT == 0 {
+                            LOG_INSTR_FREQ_CNT = 2000;
+                            println!("Last instructions --------------------");
+                            for instr in INSTR_FREQ_MAP.iter() {
+                                if *instr < 256 {
+                                    println!(
+                                        "{:?}",
+                                        std::mem::transmute::<u8, Instruction>(*instr as u8)
+                                    );
+                                } else {
+                                    println!(
+                                        "{:?}",
+                                        std::mem::transmute::<u8, CBInstruction>(
+                                            (*instr - 256) as u8
+                                        )
+                                    );
+                                }
+                            }
+                        }
+
+                        if instruction == Instruction::PREFIX_CB {
+                            INSTR_FREQ_MAP[INSTR_FREQ_MAP_IDX] = mmu.read8(self.pc) as u16 + 256;
+                        } else {
+                            INSTR_FREQ_MAP[INSTR_FREQ_MAP_IDX] = instruction as u16;
+                        }
+
+                        INSTR_FREQ_MAP_IDX += 1;
+                        INSTR_FREQ_MAP_IDX %= INSTR_FREQ_MAP.len();
                     }
                 }
 
@@ -263,7 +302,6 @@ impl CPU {
         match instruction {
             NOP => {
                 clock::ticks(4).await;
-                panic!("You did it! You reached NOP at PC = {:#06X}!", self.pc - 1);
             }
             LD_BC_d16 => {
                 clock::ticks(12).await;
@@ -1198,7 +1236,7 @@ impl CPU {
                 sa::const_assert_eq!(CBInstruction::SET_7_A as u8, std::u8::MAX);
                 let cb_instruction: CBInstruction = unsafe { std::mem::transmute(self.read8(mmu)) };
 
-                if PRINT_INSTR {
+                if self.pc >= PRINT_INSTR_MIN {
                     println!("{:?}", cb_instruction);
                 }
                 self.execute_cb(cb_instruction, mmu).await;
@@ -2648,7 +2686,6 @@ impl CPU {
 
                 // Reset the interrupt bit TODO: This feels weird... The whole read/write story feels weird. Maybe return refs to a garbage ram val on illegal adresses?
                 mmu.write8(0xFF0F, mmu.read8(0xFF0F) & !(1 << bit));
-                dbg!("Executing interrupt {:?}", &interrupt);
 
                 self.pc = match interrupt {
                     VBlank => 0x40,
@@ -2845,7 +2882,7 @@ impl From<R8> for Operand {
 
 #[allow(non_camel_case_types, dead_code)]
 #[repr(u8)]
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum Instruction {
     NOP,
     LD_BC_d16,
@@ -3108,7 +3145,7 @@ enum Instruction {
 /// Preceeded by a 0xCB instruction
 #[allow(non_camel_case_types, dead_code)]
 #[repr(u8)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 enum CBInstruction {
     RLC_B,
     RLC_C,
@@ -3366,4 +3403,38 @@ enum CBInstruction {
     SET_7_L,
     SET_7_xHLx,
     SET_7_A,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::maboy::mmu::*;
+
+    #[test]
+    fn push_pop_eq() {
+        let mut cpu = CPU::new();
+        let mut builtin_mem = BuiltinMem::new();
+        let mut cartridge_mem = CartridgeMem::empty();
+        let mut mmu = MMU::TEMP_NEW(&mut builtin_mem, &mut cartridge_mem);
+
+        let pushed = 0x1234;
+        cpu.push(&mut mmu, pushed);
+        let popped = cpu.pop(&mut mmu);
+
+        assert_eq!(pushed, popped);
+    }
+
+    #[test]
+    fn push_pop_af_eq() {
+        let mut cpu = CPU::new();
+        let mut builtin_mem = BuiltinMem::new();
+        let mut cartridge_mem = CartridgeMem::empty();
+        let mut mmu = MMU::TEMP_NEW(&mut builtin_mem, &mut cartridge_mem);
+
+        let pushed = 0x1234;
+        cpu.push(&mut mmu, pushed);
+        let popped = cpu.pop(&mut mmu);
+
+        assert_eq!(pushed, popped);
+    }
 }

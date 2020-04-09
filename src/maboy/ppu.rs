@@ -98,9 +98,14 @@ impl PPU {
                 (&mut *mmu).request_interrupt(Interrupt::VBlank);
 
                 for ly in 144..154 {
+                    if mmu_r.read8(0xFF46) != 0 {
+                        unimplemented!("OAM DMA requested, but not implemented");
+                    }
+
                     // Update LY value in memory
                     (&mut *mmu).write8(0xFF44, ly);
                     lcd_stat.set_ly_lyc_equal_flag(ly == ly_compare(mmu_r));
+
                     clock::ticks(456).await;
                 }
             }
@@ -257,7 +262,7 @@ struct LCDStat<'a>(&'a mut u8);
 // TODO: Interrupts!
 impl<'a> LCDStat<'a> {
     fn read(mmu: &'a mut MMU<'_>) -> LCDStat<'a> {
-        LCDStat(mmu.mut8(0xFF41))
+        LCDStat(mmu.mut8(0xFF41).unwrap())
     }
 
     fn lyc_interrupt_enabled(&self) -> bool {

@@ -21,7 +21,8 @@ use std::time::Duration;
 
 fn main() {
     let cartridge =
-        maboy::cartridge::Cartridge::from_rom("./roms/Tetris (World) (Rev A).gb").unwrap();
+        // maboy::cartridge::Cartridge::from_rom("./roms/Tetris (World) (Rev A).gb").unwrap();
+        maboy::cartridge::Cartridge::from_rom("./roms/test.gb").unwrap();
 
     // We need these two dummies since we want to use async without a runtime
     let dummy_waker = waker(std::sync::Arc::new(DummyWaker));
