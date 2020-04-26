@@ -11,10 +11,6 @@ use std::ops::{Index, IndexMut};
 // > So Nintendo started to tell developers to add a NOP always after a STOP.
 const SKIP_INSTR_AFTER_STOP: bool = true;
 const PRINT_INSTR_MIN: u16 = 0xFFFF; // TODO: Remove
-const LOG_INSTR_FREQ: bool = true;
-static mut LOG_INSTR_FREQ_CNT: u16 = 2000;
-static mut INSTR_FREQ_MAP: [u16; 10] = [0; 10];
-static mut INSTR_FREQ_MAP_IDX: usize = 0;
 
 #[derive(Debug)]
 pub struct CPU {
@@ -23,6 +19,7 @@ pub struct CPU {
     flags: Flags,
     /// In literature, this is sometimes called the IME flag (Interrupt Master Enable)
     interrupts_enabled: bool,
+    halted: bool,
 }
 
 impl CPU {
@@ -33,6 +30,7 @@ impl CPU {
             pc: 0,
             flags: Flags::new(),
             interrupts_enabled: true,
+            halted: false,
         }
     }
 
@@ -41,9 +39,10 @@ impl CPU {
             // If we need to handle an interrupt, we skip normal instruction decoding
             let interrupts_requested = mmu.read8(0xFF0F) & mmu.read8(0xFFFF) & 0x1F;
             if self.interrupts_enabled && interrupts_requested != 0 {
+                self.halted = false;
                 self.decode_interrupt(mmu, interrupts_requested);
                 clock::ticks(4).await; // TODO: Research this timing
-            } else {
+            } else if !self.halted {
                 // Safe transmute since we have u8::MAX instructions
                 sa::const_assert_eq!(Instruction::RST_38H as u8, std::u8::MAX);
                 let instruction: Instruction = unsafe { std::mem::transmute(self.read8(mmu)) };
@@ -56,42 +55,10 @@ impl CPU {
                     }
                 }
 
-                if LOG_INSTR_FREQ {
-                    unsafe {
-                        LOG_INSTR_FREQ_CNT -= 1;
-
-                        if LOG_INSTR_FREQ_CNT == 0 {
-                            LOG_INSTR_FREQ_CNT = 2000;
-                            println!("Last instructions --------------------");
-                            for instr in INSTR_FREQ_MAP.iter() {
-                                if *instr < 256 {
-                                    println!(
-                                        "{:?}",
-                                        std::mem::transmute::<u8, Instruction>(*instr as u8)
-                                    );
-                                } else {
-                                    println!(
-                                        "{:?}",
-                                        std::mem::transmute::<u8, CBInstruction>(
-                                            (*instr - 256) as u8
-                                        )
-                                    );
-                                }
-                            }
-                        }
-
-                        if instruction == Instruction::PREFIX_CB {
-                            INSTR_FREQ_MAP[INSTR_FREQ_MAP_IDX] = mmu.read8(self.pc) as u16 + 256;
-                        } else {
-                            INSTR_FREQ_MAP[INSTR_FREQ_MAP_IDX] = instruction as u16;
-                        }
-
-                        INSTR_FREQ_MAP_IDX += 1;
-                        INSTR_FREQ_MAP_IDX %= INSTR_FREQ_MAP.len();
-                    }
-                }
-
                 self.execute(instruction, mmu).await;
+            } else {
+                // CPU is halted
+                clock::ticks(4).await;
             }
         }
     }
@@ -114,14 +81,8 @@ impl CPU {
 
         let (sum, c) = hl.overflowing_add(addend);
 
-        // Contains result of addition if each overflow is thrown away
-        let xor = *hl ^ addend;
-
-        // The difference to the actual results are bits that were overflowed into
-        let overflow = sum ^ xor;
-
         self.flags[Flag::N] = false;
-        self.flags[Flag::H] = (overflow & 0b10000) != 0;
+        self.flags[Flag::H] = ((*hl & 0xFFF) + (addend & 0xFFF)) & 0x1000 != 0;
         self.flags[Flag::C] = c;
 
         *hl = sum;
@@ -134,22 +95,18 @@ impl CPU {
         let mut target = target.into();
         let old = target.read(self, mmu);
 
-        let h = (old & 0b1111) == 0b1111;
-
         let new = old.wrapping_add(1);
 
         target.write(self, mmu, new);
 
         self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = false;
-        self.flags[Flag::H] = h;
+        self.flags[Flag::H] = (old & 0b1111) == 0b1111;
     }
 
     fn dec8<O: Into<Operand>>(&mut self, mmu: &mut MMU, target: O) {
         let mut target = target.into();
         let old = target.read(self, mmu);
-
-        let h = old == 0;
 
         let new = old.wrapping_sub(1);
 
@@ -157,32 +114,32 @@ impl CPU {
 
         self.flags[Flag::Z] = new == 0;
         self.flags[Flag::N] = true;
-        self.flags[Flag::H] = h;
+        self.flags[Flag::H] = (new & 0xf) == 0xf;
     }
 
     fn add(&mut self, n: u8) {
-        let target = self.reg.r8_mut(R8::A);
+        let a = self.reg.r8_mut(R8::A);
 
-        let (sum, c) = target.overflowing_add(n);
+        let (sum, c) = a.overflowing_add(n);
 
         // Contains result of addition if each overflow is thrown away
-        let xor = *target ^ n;
+        let xor = *a ^ n;
 
         // The difference to the actual results are bits that were overflowed into
         let overflow = sum ^ xor;
 
-        *target = sum;
+        *a = sum;
 
-        self.flags[Flag::Z] = *target == 0;
+        self.flags[Flag::Z] = *a == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = (overflow & 0b10000) != 0;
         self.flags[Flag::C] = c;
     }
 
     fn adc(&mut self, n: u8) {
-        let target = self.reg.r8_mut(R8::A);
+        let a = self.reg.r8_mut(R8::A);
 
-        let (mut sum, mut c) = target.overflowing_add(n);
+        let (mut sum, mut c) = a.overflowing_add(n);
 
         if self.flags[Flag::C] {
             let (s_new, c_new) = sum.overflowing_add(1);
@@ -191,14 +148,14 @@ impl CPU {
         }
 
         // Contains result of addition if each overflow is thrown away
-        let xor = *target ^ n;
+        let xor = *a ^ n;
 
         // The difference to the actual results are bits that were overflowed into
         let overflow = sum ^ xor;
 
-        *target = sum;
+        *a = sum;
 
-        self.flags[Flag::Z] = *target == 0;
+        self.flags[Flag::Z] = *a == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = (overflow & 0b10000) != 0;
         self.flags[Flag::C] = c;
@@ -208,68 +165,64 @@ impl CPU {
         *self.reg.r8_mut(R8::A) = self.cp(n);
     }
 
-    fn sbc(&mut self, mut n: u8) {
-        let target = self.reg.r8_mut(R8::A);
+    fn sbc(&mut self, n: u8) {
+        let a = self.reg.r8(R8::A) as i16;
+        let n = n as i16;
 
-        if self.flags[Flag::C] {
-            n = n.wrapping_add(1);
-        }
+        let c_val = if self.flags[Flag::C] { 1 } else { 0 };
 
-        let h = n > *target;
+        let diff = a - n - c_val;
 
-        let (diff, c) = target.overflowing_sub(n);
-        *target = diff;
+        *self.reg.r8_mut(R8::A) = diff as u8;
 
-        self.flags[Flag::Z] = diff == 0;
+        self.flags[Flag::Z] = diff & 0xFF == 0;
         self.flags[Flag::N] = true;
-        self.flags[Flag::H] = h;
-        self.flags[Flag::C] = c;
+        self.flags[Flag::H] = (a & 0xf) < (n & 0xf) + c_val;
+        self.flags[Flag::C] = diff < 0;
     }
 
     /// Returns A-n, which can be used to implement SUB_n
     fn cp(&mut self, n: u8) -> u8 {
-        let reference = self.reg.r8(R8::A);
+        let a = self.reg.r8(R8::A);
 
-        let h = n > reference;
-
-        let (diff, c) = reference.overflowing_sub(n);
+        let (diff, c) = a.overflowing_sub(n);
 
         self.flags[Flag::Z] = diff == 0;
         self.flags[Flag::N] = true;
-        self.flags[Flag::H] = h;
+        self.flags[Flag::H] = (a & 0x0F) < (n & 0x0F);
         self.flags[Flag::C] = c;
 
         diff
     }
 
     fn and(&mut self, n: u8) {
-        let target = self.reg.r8_mut(R8::A);
+        let a = self.reg.r8_mut(R8::A);
 
-        *target &= n;
+        *a &= n;
 
-        self.flags[Flag::Z] = *target == 0;
+        self.flags[Flag::Z] = *a == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = true;
         self.flags[Flag::C] = false;
     }
 
     fn xor(&mut self, n: u8) {
-        let target = self.reg.r8_mut(R8::A);
+        let a = self.reg.r8_mut(R8::A);
 
-        *target ^= n;
+        *a ^= n;
 
-        self.flags[Flag::Z] = *target == 0;
+        self.flags[Flag::Z] = *a == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = false;
     }
 
     fn or(&mut self, n: u8) {
-        let target = self.reg.r8_mut(R8::A);
+        let a = self.reg.r8_mut(R8::A);
 
-        *target |= n;
+        *a |= n;
 
-        self.flags[Flag::Z] = *target == 0;
+        self.flags[Flag::Z] = *a == 0;
         self.flags[Flag::N] = false;
         self.flags[Flag::H] = false;
         self.flags[Flag::C] = false;
@@ -292,6 +245,17 @@ impl CPU {
         let sp = self.reg.r16_mut(R16::SP);
         *sp = sp.wrapping_sub(2);
         mmu.write16(*sp, val);
+    }
+
+    fn push_af(&mut self, mmu: &mut MMU) {
+        let af = ((self.reg.r8(R8::A) as u16) << 8) + self.flags.as_u8() as u16;
+        self.push(mmu, af);
+    }
+
+    fn pop_af(&mut self, mmu: &mut MMU) {
+        let af = self.pop(mmu);
+        *self.reg.r8_mut(R8::A) = (af >> 8) as u8;
+        self.flags.set_from_u8(af as u8);
     }
 
     async fn execute(&mut self, instruction: Instruction, mmu: &mut MMU<'_>) {
@@ -379,7 +343,9 @@ impl CPU {
                 if SKIP_INSTR_AFTER_STOP {
                     self.read8(mmu);
                 }
-                panic!("Reached STOP instruction");
+
+                // TODO: Stop...
+                //println!("Reached STOP instruction");
             }
             LD_DE_d16 => {
                 clock::ticks(12).await;
@@ -870,7 +836,7 @@ impl CPU {
                 mmu.write8(self.reg.r16(HL), self.reg.r8(L));
             }
             HALT => {
-                panic!("Reached HALT instruction");
+                self.halted = true;
             }
             LD_xHLx_A => {
                 clock::ticks(8).await;
@@ -1394,9 +1360,14 @@ impl CPU {
             }
             ADD_SP_r8 => {
                 clock::ticks(16).await;
-                let offset = self.read8(mmu);
-                let target = self.reg.r16_mut(SP);
-                *target = (*target as i16 + offset as i16) as u16;
+                let offset = unsafe { std::mem::transmute::<u8, i8>(self.read8(mmu)) } as i32;
+                let sp = self.reg.r16(SP) as i32;
+                self.flags[Flag::Z] = false;
+                self.flags[Flag::N] = false;
+                self.flags[Flag::H] = (sp & 0xF) + (offset & 0xF) > 0xF;
+                self.flags[Flag::C] = (sp & 0xFF) + (offset & 0xFF) > 0xFF;
+
+                *self.reg.r16_mut(SP) = (sp + offset) as u16;
             }
             JP_xHLx => {
                 clock::ticks(4).await;
@@ -1433,9 +1404,7 @@ impl CPU {
             }
             POP_AF => {
                 clock::ticks(12).await;
-                let af = self.pop(mmu);
-                *self.reg.r8_mut(A) = (af >> 4) as u8;
-                self.flags.set_from_u8(af as u8);
+                self.pop_af(mmu);
             }
             LD_A_xCx => {
                 clock::ticks(8).await;
@@ -1450,8 +1419,7 @@ impl CPU {
             }
             PUSH_AF => {
                 clock::ticks(16).await;
-                let af = ((self.reg.r8(A) as u16) << 4) + self.flags.as_u8() as u16;
-                self.push(mmu, af);
+                self.push_af(mmu);
             }
             OR_d8 => {
                 clock::ticks(8).await;
@@ -1465,7 +1433,13 @@ impl CPU {
             }
             LD_HL_SPpr8 => {
                 clock::ticks(12).await;
-                *self.reg.r16_mut(HL) = (self.reg.r16(SP) as i16 + self.read8(mmu) as i16) as u16;
+                let offset = unsafe { std::mem::transmute::<u8, i8>(self.read8(mmu)) } as i32;
+                let sp = self.reg.r16(R16::SP) as i32;
+                self.flags[Flag::Z] = false;
+                self.flags[Flag::N] = false;
+                self.flags[Flag::H] = (sp & 0xF) + (offset & 0xF) > 0xF;
+                self.flags[Flag::C] = (sp & 0xFF) + (offset & 0xFF) > 0xFF;
+                *self.reg.r16_mut(HL) = (sp + offset) as u16;
             }
             LD_SP_HL => {
                 clock::ticks(8).await;
@@ -2743,10 +2717,6 @@ struct Registers([u8; 9]);
 
 impl Registers {
     fn new() -> Registers {
-        // Initial values according to bgb.bircd.org/pandocs.htm#powerupsequence
-        //Registers([0x01, 0x00, 0x13, 0x00, 0xD8, 0x01, 0x4D, 0xFF, 0xFE])
-
-        // Let's try without
         Registers([0; 9])
     }
 
@@ -2790,10 +2760,10 @@ impl Flags {
     fn new() -> Flags {
         // Initial values according to bgb.bircd.org/pandocs.htm#powerupsequence
         Flags {
-            z: true,
+            z: false,
             n: false,
-            h: true,
-            c: true,
+            h: false,
+            c: false,
         }
     }
 
@@ -3409,6 +3379,7 @@ enum CBInstruction {
 mod tests {
     use super::*;
     use crate::maboy::mmu::*;
+    use std::future::Future;
 
     #[test]
     fn push_pop_eq() {
@@ -3431,10 +3402,18 @@ mod tests {
         let mut cartridge_mem = CartridgeMem::empty();
         let mut mmu = MMU::TEMP_NEW(&mut builtin_mem, &mut cartridge_mem);
 
-        let pushed = 0x1234;
-        cpu.push(&mut mmu, pushed);
-        let popped = cpu.pop(&mut mmu);
+        // Inital values are A=0x0 and all flags as false
+        *cpu.reg.r8_mut(R8::A) = 0x12;
+        // Now A=0x12
+        cpu.push_af(&mut mmu);
+        cpu.sub(cpu.reg.r8(R8::A));
+        // Now A=0x0,Z=1,N=1
+        cpu.pop_af(&mut mmu);
 
-        assert_eq!(pushed, popped);
+        assert_eq!(cpu.reg.r8(R8::A), 0x12);
+        assert_eq!(cpu.flags[Flag::Z], false);
+        assert_eq!(cpu.flags[Flag::N], false);
+        assert_eq!(cpu.flags[Flag::H], false);
+        assert_eq!(cpu.flags[Flag::C], false);
     }
 }

@@ -25,7 +25,6 @@ impl PPU {
     pub async fn step(&mut self, mmu: &UnsafeCell<MMU<'_>>, mut gfx_window: GfxWindow<'_, '_>) {
         unsafe {
             let mmu = mmu.get();
-            let mmu_r = &*mmu;
 
             'frame: loop {
                 let mut frame = gfx_window.next_frame();
@@ -35,7 +34,7 @@ impl PPU {
                 // frame.clear(&[1.0, 0.0, 1.0, 1.0]);
 
                 for ly in 0..144 {
-                    let lcd_ctrl = LCDControl::read(mmu_r);
+                    let lcd_ctrl = LCDControl::read(&*mmu);
 
                     // TODO: Figure out where exactly this goes, and the present timing of it
                     if !lcd_ctrl.lcd_enabled() {
@@ -44,6 +43,7 @@ impl PPU {
                         continue 'frame;
                     }
 
+                    // TODO: Check unsafe rules to see if this is okay. Doesn't feel like it
                     let mut lcd_stat = LCDStat::read(&mut *mmu);
                     // let other = self.read_other(mmu);
 
@@ -55,7 +55,7 @@ impl PPU {
                     // Update LY value in memory
                     (&mut *mmu).write8(0xFF44, ly);
 
-                    let ly_lyc_equal = ly == ly_compare(mmu_r);
+                    let ly_lyc_equal = ly == ly_compare(&*mmu);
                     lcd_stat.set_ly_lyc_equal_flag(ly_lyc_equal);
 
                     if ly_lyc_equal && lcd_stat.lyc_interrupt_enabled() {
@@ -74,12 +74,12 @@ impl PPU {
                     clock::ticks(172).await;
 
                     // TODO: Use replica of algorithm described in The Ultimate GameBoy Talk
-                    self.render_line(mmu_r, ly, lcd_ctrl);
+                    self.render_line(&*mmu, ly, lcd_ctrl);
 
                     // HBlank
                     lcd_stat.set_mode(LCDMode::HBlank);
                     if lcd_stat.h_blank_interrupt_enabled() {
-                        (&mut *mmu).request_interrupt(Interrupt::LCD_Stat);
+                        (*mmu).request_interrupt(Interrupt::LCD_Stat);
                     }
                     clock::ticks(204).await;
                 }
@@ -92,19 +92,25 @@ impl PPU {
                 lcd_stat.set_mode(LCDMode::VBlank);
 
                 if lcd_stat.v_blank_interrupt_enabled() {
-                    (&mut *mmu).request_interrupt(Interrupt::LCD_Stat);
+                    (*mmu).request_interrupt(Interrupt::LCD_Stat);
                 }
 
                 (&mut *mmu).request_interrupt(Interrupt::VBlank);
 
                 for ly in 144..154 {
-                    if mmu_r.read8(0xFF46) != 0 {
-                        unimplemented!("OAM DMA requested, but not implemented");
+                    let dma_request = dma_request(&*mmu);
+                    if dma_request != 0 {
+                        (&mut *mmu).oam_dma(dma_request);
+
+                        // TODO: See if we need a queue here (so we don't miss writes)
+                        (*mmu).write8(0xFF46, 0);
+
+                        println!("Executed DMA");
                     }
 
                     // Update LY value in memory
-                    (&mut *mmu).write8(0xFF44, ly);
-                    lcd_stat.set_ly_lyc_equal_flag(ly == ly_compare(mmu_r));
+                    (*mmu).write8(0xFF44, ly);
+                    lcd_stat.set_ly_lyc_equal_flag(ly == ly_compare(&*mmu));
 
                     clock::ticks(456).await;
                 }
@@ -126,55 +132,97 @@ impl PPU {
         let scx = scx(mmu);
         let scy = scy(mmu);
 
-        // Screen y
-        let y = ly.wrapping_add(scy);
+        // Backbuffer y
+        let by = ly.wrapping_add(scy);
 
-        let line = self.frame.line(ly);
+        let line = self.frame.line(by);
 
-        // Tile map index y
-        let ty = y / 8;
-
-        // Tile subindex y
-        let tsidx_y = y % 8;
-
-        let bg_palette = GreyscalePalette::dmg_bg(mmu);
-        let bg_tile_map_addr = lcd_ctrl.bg_tile_map_addr();
-        let bg_wnd_tiles_addr = lcd_ctrl.bg_wnd_tiles_addr();
-        let tile_idx_shift = if bg_wnd_tiles_addr == 0x8800 { 128 } else { 0 };
+        let (tile_addr, tidx_shift) = lcd_ctrl.bg_wnd_tiles_addr();
+        let mut tile_render_info = TileRenderInfo {
+            map_addr: lcd_ctrl.bg_tile_map_addr(),
+            tile_addr,
+            tidx_shift,
+            palette: GreyscalePalette::dmg_bg(mmu),
+        };
 
         if lcd_ctrl.bg_enabled() {
-            for lx in 0..160 {
-                // Screen x
-                let x = (lx as u8).wrapping_add(scx);
+            // Tile map index y
+            let tmy = by / 8;
+
+            // Tile subindex y (0 at top of the tile)
+            let tsy = by % 8;
+
+            for lx in 0u8..160 {
+                // Backbuffer x
+                let bx = lx.wrapping_add(scx);
 
                 // Tile map index x
-                let tx = x / 8;
+                let tmx = bx / 8;
 
-                // Figure out tile index by looking at tile map
-                let tidx = mmu
-                    .read8(bg_tile_map_addr + 32 * (ty as u16) + (tx as u16))
-                    .wrapping_add(tile_idx_shift);
+                // Tile sub-index (offset of the pixel within the sprite)
+                let tsx = bx % 8;
 
-                // Fetch the tile
-                let tile =
-                    mmu.read16(bg_wnd_tiles_addr + 16 * (tidx as u16) + 2 * (tsidx_y as u16));
-
-                // Tile sub-index (offset of the pixel within the sprite line)
-                let tsidx_x = x % 8;
-
-                let col = (((tile >> (7-tsidx_x)) & 0b1) << 1) + // The upper bit of the color;
-                    ((tile >> (15-tsidx_x)) & 0b1); // and the lower bit... JESUS CHRIST
-
-                // Transform the color through the palette
-                let col = bg_palette.transform_2bit(col as u8);
-
-                // TODO: Investigate a more efficient way of writing memory so we can
-                // be more performant on reads. There is a whole lot of stuff we can
-                // do with the memory layout / caching.
-
-                line[x as usize] = unsafe { Pixel::from_2bit(col) };
+                line[bx as usize] = PPU::get_tile_pixel(mmu, &tile_render_info, tmx, tmy, tsx, tsy);
             }
         }
+
+        tile_render_info.map_addr = lcd_ctrl.wnd_tile_map_addr();
+
+        // TODO: PERF: Instead of overwriting screen pixels, figure out
+        // correct window and bg bounds and render only what's necessary
+        let wnd_y = wnd_y(mmu);
+
+        // TODO: Comment this whole function, and unify style and naming
+        if lcd_ctrl.window_enabled() && ly >= wnd_y && ly < wnd_y + 160 {
+            let wnd_x = wnd_x(mmu);
+
+            let tmy = wnd_y / 8;
+            let tsy = wnd_y % 8;
+
+            for wx in 0..160 - i16::abs(wnd_x as i16 - 7) {
+                // Backbuffer x
+                let sx = wnd_x.saturating_sub(7);
+                let bx = sx.wrapping_add(scx);
+
+                // wx adjusted to tile coordinate space
+                let twx = wx as u8 + 7u8.saturating_sub(wnd_x);
+                // Tile map index x
+                let tmx = twx / 8;
+
+                // Tile sub-index (offset of the pixel within the sprite)
+                let tsx = twx % 8;
+
+                line[bx as usize] = PPU::get_tile_pixel(mmu, &tile_render_info, tmx, tmy, tsx, tsy);
+            }
+        }
+    }
+
+    fn get_tile_pixel(
+        mmu: &MMU,
+        tri: &TileRenderInfo,
+        tmx: u8,
+        tmy: u8,
+        tsx: u8,
+        tsy: u8,
+    ) -> Pixel {
+        // Figure out tile index by looking at tile map
+        let tidx = mmu
+            .read8(tri.map_addr + 32 * (tmy as u16) + (tmx as u16))
+            .wrapping_add(tri.tidx_shift);
+
+        // Fetch the tile
+        let tile = mmu.read16(tri.tile_addr + 16 * (tidx as u16) + 2 * (tsy as u16));
+
+        let col = (((tile >> (7 - tsx)) & 0b1) << 1) + ((tile >> (15 - tsx)) & 0b1);
+
+        // Transform the color through the palette
+        let col = tri.palette.transform_2bit(col as u8);
+
+        // TODO: Investigate a more efficient way of writing memory so we can
+        // be more performant on reads. There is a whole lot of stuff we can
+        // do with the memory layout / caching.
+
+        unsafe { Pixel::from_2bit(col) }
     }
 }
 
@@ -226,11 +274,11 @@ impl LCDControl {
         self.0.bit(5)
     }
 
-    fn bg_wnd_tiles_addr(&self) -> u16 {
+    fn bg_wnd_tiles_addr(&self) -> (u16, u8) {
         if self.0.bit(4) {
-            0x8000
+            (0x8000, 0)
         } else {
-            0x8800
+            (0x8800, 128)
         }
     }
 
@@ -368,4 +416,12 @@ impl GreyscalePalette {
     fn transform_2bit(&self, raw_col: u8) -> u8 {
         (self.0 >> (2 * raw_col)) & 0b11
     }
+}
+
+// TODO: Comment and explain fields
+struct TileRenderInfo {
+    map_addr: u16,
+    tile_addr: u16,
+    tidx_shift: u8,
+    palette: GreyscalePalette,
 }

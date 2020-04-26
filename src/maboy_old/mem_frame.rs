@@ -28,12 +28,12 @@ impl Pixel {
     const WHITE: Pixel = Pixel([255, 255, 255, 255]);
 
     pub unsafe fn from_2bit(val: u8) -> Pixel {
-        match val & 0b11 {
+        match val {
             0b00 => Pixel::WHITE,
             0b01 => Pixel::LGREY,
             0b10 => Pixel::DGREY,
             0b11 => Pixel::BLACK,
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => std::hint::unreachable_unchecked(),
         }
     }
 }

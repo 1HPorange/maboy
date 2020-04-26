@@ -1,5 +1,8 @@
 use super::util::EncodeWithNulTerm;
+use crate::maboy::input::KeyboardKey;
+use std::convert::TryFrom;
 use std::ffi::OsString;
+use std::marker::PhantomPinned;
 use std::mem;
 use std::os::windows::prelude::*;
 use std::pin::Pin;
@@ -21,6 +24,8 @@ static WND_CLASS_CREATED: AtomicBool = AtomicBool::new(false);
 
 pub struct Window {
     pub(super) hwnd: HWND,
+    pub keys_down: [bool; KeyboardKey::_LEN as usize], // TODO: Get rid of this horrible thing
+    _pin: PhantomPinned,
 }
 
 impl Window {
@@ -73,7 +78,28 @@ impl Window {
                 return Err(WindowError::CouldNotCreateWindow(GetLastError()));
             }
 
-            Ok(Box::pin(Window { hwnd }))
+            let mut window = Box::pin(Window {
+                hwnd,
+                keys_down: [false; KeyboardKey::_LEN as usize],
+                _pin: PhantomPinned,
+            });
+
+            // TODO: Remove all unneccesary winapi reference (e.g. those i just need for type re-definitions)
+            SetLastErrorEx(0, 0);
+            if SetWindowLongPtrW(
+                hwnd,
+                GWLP_USERDATA,
+                Pin::get_unchecked_mut(window.as_mut()) as *mut _ as isize,
+            ) == 0
+            {
+                // TODO: Destroy window
+                let last_error = GetLastError();
+                if last_error != 0 {
+                    return Err(WindowError::CouldNotAttachWindowInstance(GetLastError()));
+                }
+            }
+
+            Ok(window)
         }
     }
 
@@ -83,7 +109,7 @@ impl Window {
         }
     }
 
-    // TODO: You should go on the factory, not the window!
+    // TODO: This should go on the factory, not the window!
     pub fn handle_msgs(&self) -> bool {
         unsafe {
             let mut msg: MSG = mem::MaybeUninit::uninit().assume_init();
@@ -100,6 +126,10 @@ impl Window {
             true
         }
     }
+
+    pub fn is_key_down(&self, key: KeyboardKey) -> bool {
+        self.keys_down[key as usize]
+    }
 }
 
 unsafe extern "system" fn wnd_proc_dispatch(
@@ -113,6 +143,22 @@ unsafe extern "system" fn wnd_proc_dispatch(
         return 0;
     }
 
+    if let Some(window) = (GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut Window).as_mut() {
+        match msg {
+            WM_KEYDOWN => {
+                if let Ok(key) = KeyboardKey::try_from(w_param) {
+                    window.keys_down[key as usize] = true;
+                }
+            }
+            WM_KEYUP => {
+                if let Ok(key) = KeyboardKey::try_from(w_param) {
+                    window.keys_down[key as usize] = false;
+                }
+            }
+            _ => (),
+        }
+    }
+
     DefWindowProcW(hwnd, msg, w_param, l_param)
 }
 
@@ -121,4 +167,23 @@ pub enum WindowError {
     CouldNotRegisterWindowClass(DWORD),
     CouldNotDetermineWindowSize,
     CouldNotCreateWindow(DWORD),
+    CouldNotAttachWindowInstance(DWORD),
+}
+
+impl TryFrom<WPARAM> for KeyboardKey {
+    type Error = ();
+
+    fn try_from(w_param: WPARAM) -> Result<Self, Self::Error> {
+        match w_param {
+            0x57 => Ok(KeyboardKey::W),
+            0x41 => Ok(KeyboardKey::A),
+            0x53 => Ok(KeyboardKey::S),
+            0x44 => Ok(KeyboardKey::D),
+            0x49 => Ok(KeyboardKey::I),
+            0x4F => Ok(KeyboardKey::O),
+            0x4B => Ok(KeyboardKey::K),
+            0x4C => Ok(KeyboardKey::L),
+            _ => Err(()),
+        }
+    }
 }

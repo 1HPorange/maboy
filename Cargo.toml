@@ -7,14 +7,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-static_assertions = "1.1.0"
-futures = "0.3"
-arrayvec = "0.5"
-num_enum = "0.4" # Insane amount of dependencies for this functionality...
-winapi = { version = "0.3", features = ["winuser", "windef", "minwindef", "libloaderapi", "errhandlingapi", "ntdef", "d3d11", "d3dcommon", "winerror", "dxgi1_2", "unknwnbase", "dxgiformat", "dxgitype", "dxgi"] }
-wio = "0.2"
-# log = "0.4"
-# env_logger = "0.7"
+winapi = { version = "0.3", features = ["winuser", "windef", "minwindef", "libloaderapi", "errhandlingapi", "ntdef", "d3d11", "d3dcommon", "winerror", "dxgi1_2", "unknwnbase", "dxgiformat", "dxgitype", "dxgi"] } # TODO: Get rid of unused / barely used features
+wio = "0.2" # For the pretty ComPtr implementation
+log = "0.4"
+env_logger = "0.7"
+bitflags = "1.2"
 
-[profile.release]
-debug = true
+# Uncomment if you want debug symbols in your release build (useful for profiling)
+# [profile.release]
+# debug = true

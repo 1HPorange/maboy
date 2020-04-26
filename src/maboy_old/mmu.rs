@@ -1,7 +1,7 @@
 use super::cpu::Interrupt;
 use arrayvec::ArrayVec;
 use std::ops::IndexMut;
-use std::ptr::NonNull;
+use std::ptr::{self, NonNull};
 
 pub const CROM_BANK_LEN: usize = 0x8000 - 0x4000;
 pub const VRAM_BANK_LEN: usize = 0xA000 - 0x8000;
@@ -19,20 +19,20 @@ pub const UPPER_RAM_LEN: usize = 0x10000 - 0xFE00;
 //     cram: *mut [u8; CRAM_BANK_LEN],
 //     wram_bank_n: NonNull<[u8; WRAM_BANK_LEN]>,
 // }
-pub struct MemMap<'a> {
-    crom_bank_0_low: &'a [u8],  // 0x0000 - 0x3FFF
-    crom_bank_0_high: &'a [u8], // cont.
-    crom_bank_n: &'a [u8],      // 0x4000 - 0x7FFF
-    vram: &'a mut [u8],         // 0x8000 - 0x9FFF
-    cram: Option<&'a mut [u8]>, // 0xA000 - 0xBFFF
-    wram_bank_0: &'a mut [u8],  // 0xC000 - 0xCFFF
-    wram_bank_n: &'a mut [u8],  // 0xD000 - 0xDFFF
-    // Echo RAM - Don't touch! // 0xE000 - 0xFDFF
-    upper_ram: &'a mut [u8], //   0xFE00 - 0xFFFF
+pub struct MemMap {
+    crom_bank_0_low: NonNull<[u8]>,  // 0x0000 - 0x3FFF
+    crom_bank_0_high: NonNull<[u8]>, // cont.
+    crom_bank_n: NonNull<[u8]>,      // 0x4000 - 0x7FFF
+    vram: NonNull<[u8]>,             // 0x8000 - 0x9FFF
+    cram: *mut [u8],                 // 0xA000 - 0xBFFF
+    wram_bank_0: NonNull<[u8]>,      // 0xC000 - 0xCFFF
+    wram_bank_n: NonNull<[u8]>,      // 0xD000 - 0xDFFF
+    // Echo RAM - Don't touch!       // 0xE000 - 0xFDFF
+    upper_ram: NonNull<[u8]>, //        0xFE00 - 0xFFFF
 }
 
 pub struct MMU<'a> {
-    map: MemMap<'a>,
+    map: MemMap,
     cartridge: &'a mut CartridgeMem,
     builtin: &'a mut BuiltinMem,
 }
@@ -45,17 +45,18 @@ impl<'a> MMU<'a> {
     ) -> MMU<'a> {
         // TODO: Assert that invariants for this construction always hold
         let map = MemMap {
-            crom_bank_0_low: &BIOS,
-            crom_bank_0_high: &cartridge_mem.crom_banks[0],
-            crom_bank_n: &cartridge_mem.crom_banks[1],
-            vram: &mut builtin_mem.vram_banks[0],
+            crom_bank_0_low: NonNull::from(&BIOS),
+            crom_bank_0_high: NonNull::from(&cartridge_mem.crom_banks[0][..]),
+            crom_bank_n: NonNull::from(&cartridge_mem.crom_banks[1][..]),
+            vram: NonNull::from(&mut builtin_mem.vram_banks[0][..]),
             cram: cartridge_mem
                 .cram_banks
                 .get_mut(0)
-                .map(|bank| &mut bank[..]),
-            wram_bank_0: &mut builtin_mem.wram_bank_0,
-            wram_bank_n: &mut builtin_mem.wram_banks_reserve[0],
-            upper_ram: &mut builtin_mem.upper_ram,
+                .map(|bank| &mut bank[..] as *mut [u8])
+                .unwrap_or(ptr::slice_from_raw_parts_mut(ptr::null_mut(), 0)),
+            wram_bank_0: NonNull::from(&mut builtin_mem.wram_banks[0][..]),
+            wram_bank_n: NonNull::from(&mut builtin_mem.wram_banks[1][..]),
+            upper_ram: NonNull::from(&mut builtin_mem.upper_ram[..]),
         };
 
         MMU {
@@ -67,7 +68,10 @@ impl<'a> MMU<'a> {
 
     /// Will never fail, but yield garbage on failed reads
     pub fn read8(&self, addr: u16) -> u8 {
-        *self.ref8(addr).unwrap_or(&0xFF) // TODO: Research correct "garbage" returns
+        match addr {
+            0xFF00 => input.asd,
+            _ => *self.ref8(addr).unwrap_or(&0xFF), // TODO: Research correct "garbage" returns
+        }
     }
 
     /// Will never fail, but yield garbage on failed reads
@@ -86,6 +90,7 @@ impl<'a> MMU<'a> {
     pub fn write8(&mut self, addr: u16, value: u8) {
         // TODO: Nicer
         match addr {
+            0xFF00 => input.asd,
             0xFF02 => {
                 print!("{}", self.read8(0xFF01) as char);
             }
@@ -112,64 +117,69 @@ impl<'a> MMU<'a> {
     }
 
     pub fn ref8(&self, addr: u16) -> Option<&u8> {
-        let addr = addr as usize;
+        unsafe {
+            let addr = addr as usize;
 
-        match addr & 0xF000 {
-            0x0000 => {
-                if addr < 0x100 {
-                    Some(&self.map.crom_bank_0_low[addr])
-                } else {
-                    Some(&self.map.crom_bank_0_high[addr])
+            match addr & 0xF000 {
+                0x0000 => {
+                    if addr < 0x100 {
+                        Some(&self.map.crom_bank_0_low.as_ref()[addr])
+                    } else {
+                        Some(&self.map.crom_bank_0_high.as_ref()[addr])
+                    }
                 }
-            }
-            0x1000 => Some(&self.map.crom_bank_0_high[addr]),
-            0x2000 => Some(&self.map.crom_bank_0_high[addr]),
-            0x3000 => Some(&self.map.crom_bank_0_high[addr]),
-            0x4000 => Some(&self.map.crom_bank_n[addr - 0x4000]),
-            0x5000 => Some(&self.map.crom_bank_n[addr - 0x4000]),
-            0x6000 => Some(&self.map.crom_bank_n[addr - 0x4000]),
-            0x7000 => Some(&self.map.crom_bank_n[addr - 0x4000]),
-            0x8000 => Some(&self.map.vram[addr - 0x8000]),
-            0x9000 => Some(&self.map.vram[addr - 0x8000]),
-            0xA000 => self.map.cram.as_ref().map(|cram| &cram[addr - 0xA000]),
-            0xB000 => self.map.cram.as_ref().map(|cram| &cram[addr - 0xA000]),
-            0xC000 => Some(&self.map.wram_bank_0[addr - 0xC000]),
-            0xD000 => Some(&self.map.wram_bank_n[addr - 0xD000]),
-            0xE000 => None, // This is actually a read of echo RAM, so we should let it succeed!
-            0xF000 => {
-                if addr < 0xFE00 {
-                    None // This is actually a read of echo RAM, so we should let it succeed!
-                } else {
-                    Some(&self.map.upper_ram[addr - 0xFE00])
+                0x1000 => Some(&self.map.crom_bank_0_high.as_ref()[addr]),
+                0x2000 => Some(&self.map.crom_bank_0_high.as_ref()[addr]),
+                0x3000 => Some(&self.map.crom_bank_0_high.as_ref()[addr]),
+                0x4000 => Some(&self.map.crom_bank_n.as_ref()[addr - 0x4000]),
+                0x5000 => Some(&self.map.crom_bank_n.as_ref()[addr - 0x4000]),
+                0x6000 => Some(&self.map.crom_bank_n.as_ref()[addr - 0x4000]),
+                0x7000 => Some(&self.map.crom_bank_n.as_ref()[addr - 0x4000]),
+                0x8000 => Some(&self.map.vram.as_ref()[addr - 0x8000]),
+                0x9000 => Some(&self.map.vram.as_ref()[addr - 0x8000]),
+                0xA000 => self.map.cram.as_ref().map(|cram| &cram[addr - 0xA000]),
+                0xB000 => self.map.cram.as_ref().map(|cram| &cram[addr - 0xA000]),
+                0xC000 => Some(&self.map.wram_bank_0.as_ref()[addr - 0xC000]),
+                0xD000 => Some(&self.map.wram_bank_n.as_ref()[addr - 0xD000]),
+                0xE000 => None, // This is actually a read of echo RAM, so we should let it succeed!
+                0xF000 => {
+                    if addr < 0xFE00 {
+                        None // This is actually a read of echo RAM, so we should let it succeed!
+                    } else {
+                        Some(&self.map.upper_ram.as_ref()[addr - 0xFE00])
+                    }
                 }
+                _ => std::hint::unreachable_unchecked(),
             }
-            _ => unsafe { std::hint::unreachable_unchecked() },
         }
     }
 
+    // TODO: Delegate reads and writes of special registers to other modules
     pub fn mut8(&mut self, addr: u16) -> Option<&mut u8> {
-        let addr = addr as usize;
+        unsafe {
+            let addr = addr as usize;
 
-        if addr < 0x8000 {
-            return None; // Write to cartridge ROM
-        }
-
-        match addr & 0xF000 {
-            0x8000 => Some(&mut self.map.vram[addr - 0x8000]),
-            0x9000 => Some(&mut self.map.vram[addr - 0x8000]),
-            0xA000 => self.map.cram.as_mut().map(|cram| &mut cram[addr - 0xA000]),
-            0xB000 => self.map.cram.as_mut().map(|cram| &mut cram[addr - 0xA000]),
-            0xC000 => Some(&mut self.map.wram_bank_0[addr - 0xC000]),
-            0xD000 => Some(&mut self.map.wram_bank_n[addr - 0xD000]),
-            0xE000 => None, // This is actually a write to echo RAM, so we should let it succeed!
-            0xF000 => {
-                if addr < 0xFE00 {
-                    None // This is actually a write to echo RAM, so we should let it succeed!
-                } else {
-                    Some(&mut self.map.upper_ram[addr - 0xFE00])
-                }
+            if addr < 0x8000 {
+                return None; // Write to cartridge ROM
             }
-            _ => unsafe { std::hint::unreachable_unchecked() },
+
+            match addr & 0xF000 {
+                0x8000 => Some(&mut self.map.vram.as_mut()[addr - 0x8000]),
+                0x9000 => Some(&mut self.map.vram.as_mut()[addr - 0x8000]),
+                0xA000 => self.map.cram.as_mut().map(|cram| &mut cram[addr - 0xA000]),
+                0xB000 => self.map.cram.as_mut().map(|cram| &mut cram[addr - 0xA000]),
+                0xC000 => Some(&mut self.map.wram_bank_0.as_mut()[addr - 0xC000]),
+                0xD000 => Some(&mut self.map.wram_bank_n.as_mut()[addr - 0xD000]),
+                0xE000 => None, // This is actually a write to echo RAM, so we should let it succeed!
+                0xF000 => {
+                    if addr < 0xFE00 {
+                        None // This is actually a write to echo RAM, so we should let it succeed!
+                    } else {
+                        Some(&mut self.map.upper_ram.as_mut()[addr - 0xFE00])
+                    }
+                }
+                _ => std::hint::unreachable_unchecked(),
+            }
         }
     }
 
@@ -178,10 +188,25 @@ impl<'a> MMU<'a> {
         *self.mut8(0xFF0F).unwrap() |= 1 << ir as u8;
     }
 
-    fn unmap_boot_rom(&mut self) {
+    pub fn unmap_boot_rom(&mut self) {
         // TODO: Investigate if this is actually safe, or if we have to use pointers
         self.map.crom_bank_0_low =
             unsafe { std::mem::transmute(&self.cartridge.crom_banks[0][..256]) }
+    }
+
+    // TODO: DMA timing and access restrictions!!!
+    pub fn oam_dma(&mut self, src_addr_high: u8) {
+        unsafe {
+            const OAM_LEN: u16 = 160;
+
+            // TODO: PERF: Make this operation much faster by doing slice copy!
+            // self.builtin.upper_ram[..OAM_LEN].copy_from_slice(src);
+
+            let src_start = (src_addr_high as u16) * 100;
+            for i in 0..OAM_LEN {
+                *self.mut8(0xFE00 + i).unwrap() = self.read8(src_start + i);
+            }
+        }
     }
 }
 
@@ -199,12 +224,27 @@ impl CartridgeMem {
             cram_banks: vec![],
         }
     }
+
+    // TODO: Docs!
+    pub fn test_rom(rom: &[u8]) -> CartridgeMem {
+        CartridgeMem {
+            crom_banks: vec![
+                rom.iter()
+                    .copied()
+                    .chain(std::iter::repeat(0))
+                    .take(CROM_BANK_LEN)
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+                vec![0; CROM_BANK_LEN].into_boxed_slice(),
+            ],
+            cram_banks: vec![],
+        }
+    }
 }
 
 pub struct BuiltinMem {
     vram_banks: Vec<Box<[u8]>>,
-    wram_bank_0: Box<[u8]>,
-    wram_banks_reserve: Vec<Box<[u8]>>,
+    wram_banks: Vec<Box<[u8]>>,
     upper_ram: Box<[u8]>,
 }
 
@@ -212,53 +252,9 @@ impl BuiltinMem {
     pub fn new() -> BuiltinMem {
         let mut upper_ram = vec![0; UPPER_RAM_LEN].into_boxed_slice();
 
-        // TODO: According to http://www.codeslinger.co.uk/pages/projects/gameboy/hardware.html
-
-        // TODO Figure out WTH this is and if I even need it
-        // m_ProgramCounter=0x100 ;
-        // m_RegisterAF=0x01B0;
-        // m_RegisterBC=0x0013;
-        // m_RegisterDE=0x00D8;
-        // m_RegisterHL=0x014D;
-        // m_StackPointer=0xFFFE;
-
-        // TODO: Figure out WTH this is and if I even need it
-        // upper_ram[0xFF05 - 0xFE00] = 0x00;
-        // upper_ram[0xFF06 - 0xFE00] = 0x00;
-        // upper_ram[0xFF07 - 0xFE00] = 0x00;
-        // upper_ram[0xFF10 - 0xFE00] = 0x80;
-        // upper_ram[0xFF11 - 0xFE00] = 0xBF;
-        // upper_ram[0xFF12 - 0xFE00] = 0xF3;
-        // upper_ram[0xFF14 - 0xFE00] = 0xBF;
-        // upper_ram[0xFF16 - 0xFE00] = 0x3F;
-        // upper_ram[0xFF17 - 0xFE00] = 0x00;
-        // upper_ram[0xFF19 - 0xFE00] = 0xBF;
-        // upper_ram[0xFF1A - 0xFE00] = 0x7F;
-        // upper_ram[0xFF1B - 0xFE00] = 0xFF;
-        // upper_ram[0xFF1C - 0xFE00] = 0x9F;
-        // upper_ram[0xFF1E - 0xFE00] = 0xBF;
-        // upper_ram[0xFF20 - 0xFE00] = 0xFF;
-        // upper_ram[0xFF21 - 0xFE00] = 0x00;
-        // upper_ram[0xFF22 - 0xFE00] = 0x00;
-        // upper_ram[0xFF23 - 0xFE00] = 0xBF;
-        // upper_ram[0xFF24 - 0xFE00] = 0x77;
-        // upper_ram[0xFF25 - 0xFE00] = 0xF3;
-        // upper_ram[0xFF26 - 0xFE00] = 0xF1;
-        // upper_ram[0xFF40 - 0xFE00] = 0x91;
-        // upper_ram[0xFF42 - 0xFE00] = 0x00;
-        // upper_ram[0xFF43 - 0xFE00] = 0x00;
-        // upper_ram[0xFF45 - 0xFE00] = 0x00;
-        // upper_ram[0xFF47 - 0xFE00] = 0xFC;
-        // upper_ram[0xFF48 - 0xFE00] = 0xFF;
-        // upper_ram[0xFF49 - 0xFE00] = 0xFF;
-        // upper_ram[0xFF4A - 0xFE00] = 0x00;
-        // upper_ram[0xFF4B - 0xFE00] = 0x00;
-        // upper_ram[0xFFFF - 0xFE00] = 0x00;
-
         BuiltinMem {
             vram_banks: vec![vec![0; VRAM_BANK_LEN].into_boxed_slice()],
-            wram_bank_0: vec![0; WRAM_BANK_LEN].into_boxed_slice(),
-            wram_banks_reserve: vec![vec![0; WRAM_BANK_LEN].into_boxed_slice()],
+            wram_banks: vec![vec![0; WRAM_BANK_LEN].into_boxed_slice(); 2],
             upper_ram,
         }
     }
