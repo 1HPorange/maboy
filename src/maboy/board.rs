@@ -4,8 +4,8 @@ pub struct Board<'m, CRAM: CartridgeRam> {
 }
 
 impl<'m, CRAM: CartridgeRam> Board<'m, CRAM> {
-    pub fn new() -> Board<'m, CRAM> {
-        unimplemented!()
+    pub fn new(mem: Memory<'m, CRAM>) -> Board<'m, CRAM> {
+        Board { mem }
     }
 
     pub fn advance_mcycle(&mut self) {}

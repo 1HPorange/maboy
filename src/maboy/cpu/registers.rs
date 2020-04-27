@@ -97,11 +97,3 @@ impl Registers {
         self.r16_mut(R16::PC)
     }
 }
-
-impl Index<Flags> for Registers {
-    type Output = bool;
-
-    fn index(&self, flags: Flags) -> &Self::Output {
-        &self.flags().contains(flags)
-    }
-}
