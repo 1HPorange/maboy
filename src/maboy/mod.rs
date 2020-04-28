@@ -2,27 +2,24 @@ mod board;
 mod cartridge;
 mod cpu;
 mod memory;
+mod ppu;
 mod util;
 
 use board::Board;
 use cpu::CPU;
-use memory::cartridge_mem::CartridgeRam;
-use memory::Memory;
+use memory::{cartridge_mem::CartridgeRam, internal_mem::InternalMem, Memory};
 
 pub use cartridge::Cartridge;
-pub use memory::{cartridge_mem::CartridgeMem, internal_mem::InternalMem};
+pub use memory::cartridge_mem::CartridgeMem;
 
-pub struct Emulator<'m, CRAM: CartridgeRam> {
+pub struct Emulator<CRAM: CartridgeRam> {
     cpu: CPU,
-    board: Board<'m, CRAM>,
+    board: Board<CRAM>,
 }
 
-impl<'m, CRAM: CartridgeRam> Emulator<'m, CRAM> {
-    pub fn new(
-        internal_mem: &'m mut InternalMem,
-        cartridge_mem: &'m mut CartridgeMem<CRAM>,
-    ) -> Emulator<'m, CRAM> {
-        let mem = Memory::new(internal_mem, cartridge_mem);
+impl<CRAM: CartridgeRam> Emulator<CRAM> {
+    pub fn new(cartridge_mem: CartridgeMem<CRAM>) -> Emulator<CRAM> {
+        let mem = Memory::new(InternalMem::new(), cartridge_mem);
 
         Emulator {
             cpu: CPU::new(),

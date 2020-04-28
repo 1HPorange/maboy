@@ -1,5 +1,6 @@
 // TODO: Number "NOT_USED" instructions correctly... I'm an idiot
 #[allow(non_camel_case_types, dead_code)]
+#[derive(Debug)]
 #[repr(u8)]
 pub enum ByteInstr {
     NOP,

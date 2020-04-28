@@ -1,14 +1,14 @@
 mod execute;
-mod instructions;
-mod interrupts;
+mod instruction;
+pub mod interrupt;
 mod operands;
 mod registers;
 
 use super::board::Board;
 use super::memory::cartridge_mem::CartridgeRam;
 use execute::*;
-use instructions::{ByteInstr, CBByteInstr};
-use interrupts::Interrupt;
+use instruction::{ByteInstr, CBByteInstr};
+use interrupt::Interrupt;
 use operands::{HighRamOperand, HlOperand, Imm8, ImmAddr};
 use registers::{Flags, Registers, R16, R8};
 
@@ -60,10 +60,12 @@ impl CPU {
     }
 
     pub fn step_instr<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) {
-        match self.check_interrupt_request() {
+        match board.query_interrupt_request() {
             Some(interrupt) if self.ime => self.jmp_to_interrupt_handler(interrupt),
             _ => {
+                // Interrupt flags are NOT cleared if we don't take the jump
                 let instr = self.prefetch(board);
+                println!("{:#08X}: {:?}", self.reg.pc(), &instr);
                 self.execute(board, instr);
             }
         }
@@ -81,11 +83,7 @@ impl CPU {
         result
     }
 
-    fn check_interrupt_request(&self) -> Option<Interrupt> {
-        unimplemented!()
-    }
-
-    fn jmp_to_interrupt_handler(&mut self, Interrupt: Interrupt) {
+    fn jmp_to_interrupt_handler(&mut self, interrupt: Interrupt) {
         unimplemented!()
     }
 

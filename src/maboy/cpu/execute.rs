@@ -105,8 +105,7 @@ pub fn scf(cpu: &mut CPU) {
 }
 
 pub fn ccf(cpu: &mut CPU) {
-    let carry = cpu.reg.flags().contains(Flags::C);
-    cpu.reg.flags_mut().set(Flags::C, !carry);
+    cpu.reg.flags_mut().toggle(Flags::C);
 }
 
 pub fn jr_cond<CRAM: CartridgeRam>(cpu: &mut CPU, board: &mut Board<CRAM>, cond: bool) {
