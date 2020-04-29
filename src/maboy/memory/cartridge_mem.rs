@@ -6,7 +6,7 @@ pub trait CartridgeRam {
 }
 
 pub struct CartridgeMem<CRAM: CartridgeRam> {
-    pub(super) rom: Pin<Box<[u8]>>,
+    pub(super) rom: Pin<Box<[u8]>>, // TODO: Can we do it so only MemoryMap sees this?
     pub(super) cram: CRAM,
 }
 

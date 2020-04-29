@@ -1,11 +1,10 @@
 pub mod cartridge_mem;
 pub mod internal_mem; // TODO: Think about not exposing this
-pub mod mem_addr;
 mod memory_map;
 
+use crate::maboy::address::{MemAddr, ReadOnlyMemAddr, ReadWriteMemAddr};
 use cartridge_mem::{CartridgeMem, CartridgeRam};
-use internal_mem::{InternalMem, IF_MASK};
-use mem_addr::{IOAddr, MemAddr};
+use internal_mem::InternalMem;
 use memory_map::MemoryMap;
 
 pub struct Memory<CRAM: CartridgeRam> {
@@ -25,49 +24,38 @@ impl<CRAM: CartridgeRam> Memory<CRAM> {
 
     pub fn read8(&self, addr: MemAddr) -> u8 {
         use MemAddr::*;
+        use ReadOnlyMemAddr::*;
+        use ReadWriteMemAddr::*;
 
         match addr {
-            CROM0lo(addr) => self.map.crom_0_lo[addr as usize],
-            CROM0hi(addr) => self.map.crom_0_hi[addr as usize],
-            CROMn(addr) => self.map.crom_n[addr as usize],
-            VRAM(addr) => self.internal.vram[addr as usize],
-            CRAM(addr) => self.cartridge.cram.read8(addr),
-            WRAM(addr) => self.internal.wram[addr as usize],
-            Echo(addr) => unimplemented!(),
-            OAM(addr) => self.internal.oam[addr as usize],
-            Unusable(addr) => unimplemented!(),
-            IO(IOAddr::SB) => unimplemented!(),
-            IO(IOAddr::SC) => unimplemented!(),
-            IO(IOAddr::IF) => self.internal.if_reg,
-            IO(IOAddr::NR52) => unimplemented!(),
-            IO(IOAddr::SCY) => unimplemented!(),
-            IO(IOAddr::LY) => unimplemented!(),
-            IO(IOAddr::BOOT_ROM_DISABLE) => unimplemented!(),
-            IO(IOAddr::Unimplemented(addr)) => {
-                println!("Unimplemented IO read: {:#06X}", addr);
-                0xFF
-            }
-            HRAM(addr) => self.internal.hram[addr as usize],
-            IE => self.internal.ie,
+            ReadOnly(CROM0lo(addr)) => self.map.crom_0_lo[addr as usize],
+            ReadOnly(CROM0hi(addr)) => self.map.crom_0_hi[addr as usize],
+            ReadOnly(CROMn(addr)) => self.map.crom_n[addr as usize],
+            ReadWrite(CRAM(addr)) => self.cartridge.cram.read8(addr),
+            ReadWrite(WRAM(addr)) => self.internal.wram[addr as usize],
+            ReadWrite(ECHO(addr)) => unimplemented!("ECHO read not implemented"),
+            ReadWrite(HRAM(addr)) => self.internal.hram[addr as usize],
         }
     }
 
-    pub fn write8(&mut self, addr: MemAddr, val: u8) {
-        use MemAddr::*;
+    pub fn write8(&mut self, addr: ReadWriteMemAddr, val: u8) {
+        use ReadWriteMemAddr::*;
 
         match addr {
-            VRAM(addr) => self.internal.vram[addr as usize] = val,
             CRAM(addr) => self.cartridge.cram.write8(addr, val),
             WRAM(addr) => self.internal.wram[addr as usize] = val,
-            Echo(addr) => unimplemented!(),
-            OAM(addr) => self.internal.oam[addr as usize] = val,
-            Unusable(addr) => unimplemented!(),
-            IO(IOAddr::IF) => self.internal.if_reg = val | IF_MASK,
-            IO(IOAddr::Unimplemented(addr)) => println!("Unimplemented IO write: {:#06X}", addr),
-            IO(target) => println!("Unhandled IO write to register {:?}", target),
+            ECHO(addr) => unimplemented!("ECHO write not implemented"),
             HRAM(addr) => self.internal.hram[addr as usize] = val,
-            IE => self.internal.ie = val,
-            _ => (),
+        }
+    }
+
+    pub fn write_ff50(&mut self, val: u8) {
+        use std::mem::transmute as forget_lifetime;
+
+        if val == 1 {
+            self.map.crom_0_lo = unsafe { forget_lifetime(&mut self.cartridge.rom[..0x100]) };
+        } else {
+            unimplemented!("Don't know what happens here")
         }
     }
 }

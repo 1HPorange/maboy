@@ -1,14 +1,13 @@
 mod execute;
 mod instruction;
-pub mod interrupt;
 mod operands;
 mod registers;
 
 use super::board::Board;
+use super::interrupt_system::Interrupt;
 use super::memory::cartridge_mem::CartridgeRam;
 use execute::*;
 use instruction::{ByteInstr, CBByteInstr};
-use interrupt::Interrupt;
 use operands::{HighRamOperand, HlOperand, Imm8, ImmAddr};
 use registers::{Flags, Registers, R16, R8};
 
@@ -65,7 +64,16 @@ impl CPU {
             _ => {
                 // Interrupt flags are NOT cleared if we don't take the jump
                 let instr = self.prefetch(board);
-                println!("{:#08X}: {:?}", self.reg.pc(), &instr);
+                if self.reg.pc() >= 0x100 {
+                    static mut fuck: usize = 0;
+                    unsafe {
+                        fuck += 1;
+                        if fuck > 10000 {
+                            panic!()
+                        }
+                    }
+                    println!("{:#06X}: {:?}", self.reg.pc(), &instr);
+                }
                 self.execute(board, instr);
             }
         }
@@ -78,7 +86,7 @@ impl CPU {
     }
 
     fn read16i<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) -> u16 {
-        let result = board.read16(self.reg.r16(R16::PC)) as u16;
+        let result = board.read16(self.reg.r16(R16::PC));
         *self.reg.r16_mut(R16::PC) = self.reg.r16(R16::PC).wrapping_add(2);
         result
     }
