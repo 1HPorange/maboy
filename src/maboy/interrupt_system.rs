@@ -57,4 +57,8 @@ impl InterruptSystem {
             std::hint::unreachable_unchecked()
         }
     }
+
+    pub fn schedule_interrupt(&mut self, ir: Interrupt) {
+        unimplemented!()
+    }
 }

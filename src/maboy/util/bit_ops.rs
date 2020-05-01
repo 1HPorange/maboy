@@ -1,7 +1,15 @@
 pub trait BitOps {
+    #[must_use]
     fn bit(self, bit: u8) -> bool;
+
+    #[must_use]
     fn reset_bit(self, bit: u8) -> Self;
+
+    #[must_use]
     fn set_bit(self, bit: u8) -> Self;
+
+    #[must_use]
+    fn set_bit_to(self, bit: u8, is_set: bool) -> Self;
 }
 
 macro_rules! impl_bitops {
@@ -17,6 +25,14 @@ macro_rules! impl_bitops {
 
             fn set_bit(self, bit: u8) -> Self {
                 self | (1 << bit)
+            }
+
+            fn set_bit_to(self, bit: u8, is_set: bool) -> Self {
+                if is_set {
+                    self.set_bit(bit)
+                } else {
+                    self.reset_bit(bit)
+                }
             }
         })*
     };

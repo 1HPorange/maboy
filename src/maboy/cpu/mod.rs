@@ -64,16 +64,16 @@ impl CPU {
             _ => {
                 // Interrupt flags are NOT cleared if we don't take the jump
                 let instr = self.prefetch(board);
-                if self.reg.pc() >= 0x100 {
-                    static mut fuck: usize = 0;
-                    unsafe {
-                        fuck += 1;
-                        if fuck > 10000 {
-                            panic!()
-                        }
-                    }
-                    println!("{:#06X}: {:?}", self.reg.pc(), &instr);
-                }
+                // if self.reg.pc() >= 0x100 {
+                //     static mut fuck: usize = 0;
+                //     unsafe {
+                //         fuck += 1;
+                //         if fuck > 200_000 {
+                //             panic!()
+                //         }
+                //     }
+                //     println!("{:#06X}: {:?}", self.reg.pc(), &instr);
+                // }
                 self.execute(board, instr);
             }
         }
@@ -359,7 +359,7 @@ impl CPU {
             XOR_d8 => xor8(self, board, Imm8),
             RST_28H => rst(self, board, 0x28),
             LDH_A_xa8x => ld8(self, board, A, HighRamOperand::Imm8),
-            POP_AF => pop(self, board, AF),
+            POP_AF => pop_af(self, board),
             LD_A_xCx => ld8(self, board, A, HighRamOperand::C),
             DI => self.set_ime(false),
             NOT_USED_7 => self.set_halt_state(HaltState::Stuck),

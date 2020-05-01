@@ -97,6 +97,7 @@ pub fn rra(cpu: &mut CPU) {
 
 pub fn cpl(cpu: &mut CPU) {
     *cpu.reg.r8_mut(R8::A) = !cpu.reg.r8(R8::A);
+    cpu.reg.flags_mut().insert(Flags::N | Flags::H);
 }
 
 pub fn scf(cpu: &mut CPU) {
@@ -105,6 +106,7 @@ pub fn scf(cpu: &mut CPU) {
 }
 
 pub fn ccf(cpu: &mut CPU) {
+    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
     cpu.reg.flags_mut().toggle(Flags::C);
 }
 
@@ -135,6 +137,13 @@ pub fn jp_hl(cpu: &mut CPU) {
 
 pub fn pop<CRAM: CartridgeRam>(cpu: &mut CPU, board: &mut Board<CRAM>, rr: R16) {
     *cpu.reg.r16_mut(rr) = board.read16(cpu.reg.sp());
+    *cpu.reg.sp_mut() = cpu.reg.sp().wrapping_add(2);
+}
+
+pub fn pop_af<CRAM: CartridgeRam>(cpu: &mut CPU, board: &mut Board<CRAM>) {
+    // The lower four bits of the flag register will always be 0, no matter
+    // what you pop into them
+    *cpu.reg.r16_mut(R16::AF) = board.read16(cpu.reg.sp()) & 0xFFF0;
     *cpu.reg.sp_mut() = cpu.reg.sp().wrapping_add(2);
 }
 
@@ -171,21 +180,22 @@ pub fn call_cond<CRAM: CartridgeRam>(cpu: &mut CPU, board: &mut Board<CRAM>, con
 
     if cond {
         push(cpu, board, R16::PC);
-        *cpu.reg.sp_mut() = target;
+        *cpu.reg.pc_mut() = target;
     }
 }
 
 pub fn add_hl_rr<CRAM: CartridgeRam>(cpu: &mut CPU, board: &mut Board<CRAM>, rr: R16) {
+    let old = cpu.reg.hl();
     let addend = cpu.reg.r16(rr);
 
-    let (new, carry) = cpu.reg.hl().overflowing_add(addend);
+    let (new, carry) = old.overflowing_add(addend);
 
     *cpu.reg.hl_mut() = new;
 
     cpu.reg.flags_mut().remove(Flags::N);
     cpu.reg
         .flags_mut()
-        .set(Flags::H, ((new & 0xFFF) + (addend & 0xFFF)).bit(12));
+        .set(Flags::H, (old & 0x0FFF) + (addend & 0x0FFF) > 0x0FFF);
     cpu.reg.flags_mut().set(Flags::C, carry);
 
     board.advance_mcycle();
@@ -247,39 +257,38 @@ pub fn dec8<CRAM: CartridgeRam, T: Src8 + Dst8 + Copy>(
 }
 
 pub fn add8<CRAM: CartridgeRam, S: Src8>(cpu: &mut CPU, board: &mut Board<CRAM>, src: S) {
-    let old = src.read(cpu, board);
-    let (new, carry) = cpu.reg.r8(R8::A).overflowing_add(old);
+    let old = cpu.reg.r8(R8::A);
+    let addend = src.read(cpu, board);
+    let (new, carry) = old.overflowing_add(addend);
 
     *cpu.reg.r8_mut(R8::A) = new;
 
     cpu.reg.flags_mut().set(Flags::Z, new == 0);
     cpu.reg.flags_mut().remove(Flags::N);
-    cpu.reg.flags_mut().set(Flags::H, (old & 0x0f) == 0x0f);
+    cpu.reg
+        .flags_mut()
+        .set(Flags::H, (old & 0x0f) + (addend & 0x0f) > 0x0f);
     cpu.reg.flags_mut().set(Flags::C, carry);
 }
 
 pub fn adc8<CRAM: CartridgeRam, S: Src8>(cpu: &mut CPU, board: &mut Board<CRAM>, src: S) {
-    let old = cpu.reg.r8(R8::A);
-    let addend = src
-        .read(cpu, board)
-        .wrapping_add(if cpu.reg.flags().contains(Flags::C) {
-            1
-        } else {
-            0
-        });
-
-    if addend == 0 {
-        cpu.reg.flags_mut().set(Flags::Z, old == 0);
-        cpu.reg.flags_mut().remove(Flags::H); // TODO: Check
-        cpu.reg.flags_mut().insert(Flags::C); // TODO: Check
+    let old = cpu.reg.r8(R8::A) as u16;
+    let addend = src.read(cpu, board) as u16;
+    let carry_val = if cpu.reg.flags().contains(Flags::C) {
+        1
     } else {
-        let (new, carry) = old.overflowing_add(addend);
+        0
+    };
+    let sum = old + addend + carry_val;
+    let new = (sum & 0xff) as u8;
 
-        cpu.reg.flags_mut().set(Flags::Z, new == 0);
-        cpu.reg.flags_mut().set(Flags::H, (old & 0x0f) == 0x0f);
-        cpu.reg.flags_mut().set(Flags::C, carry);
-    }
+    *cpu.reg.r8_mut(R8::A) = new;
 
+    cpu.reg.flags_mut().set(Flags::Z, new == 0);
+    cpu.reg
+        .flags_mut()
+        .set(Flags::H, (old & 0x0f) + (addend & 0x0f) + carry_val > 0x0f);
+    cpu.reg.flags_mut().set(Flags::C, sum > 0xff);
     cpu.reg.flags_mut().remove(Flags::N);
 }
 
@@ -481,7 +490,8 @@ pub fn srl<CRAM: CartridgeRam, T: Src8 + Dst8 + Copy>(
 pub fn bit<CRAM: CartridgeRam, S: Src8>(cpu: &mut CPU, board: &mut Board<CRAM>, bit: u8, src: S) {
     let bit_set = src.read(cpu, board).bit(bit);
     cpu.reg.flags_mut().set(Flags::Z, !bit_set);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
+    cpu.reg.flags_mut().remove(Flags::N);
+    cpu.reg.flags_mut().insert(Flags::H);
 }
 
 pub fn res<CRAM: CartridgeRam, T: Src8 + Dst8 + Copy>(
@@ -506,7 +516,7 @@ pub fn set<CRAM: CartridgeRam, T: Src8 + Dst8 + Copy>(
 
 pub fn daa(cpu: &mut CPU) {
     // DAA is kind of infamous for having complicated behaviour
-    // This is why I took the source code from https://forums.nesdev.com/viewtopic.phpt=15944
+    // This is why I took the source code from https://forums.nesdev.com/viewtopic.php?t=15944
 
     let mut new = cpu.reg.r8(R8::A);
 
@@ -529,6 +539,8 @@ pub fn daa(cpu: &mut CPU) {
             new = new.wrapping_sub(0x6);
         }
     };
+
+    *cpu.reg.r8_mut(R8::A) = new;
 
     // these flags are always updated
     cpu.reg.flags_mut().set(Flags::Z, new == 0); // the usual z flag

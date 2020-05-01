@@ -5,6 +5,7 @@ mod cpu;
 mod interrupt_system;
 mod memory;
 mod ppu;
+mod serial_port;
 mod util;
 
 use board::Board;
@@ -31,5 +32,9 @@ impl<CRAM: CartridgeRam> Emulator<CRAM> {
 
     pub fn emulate_step(&mut self) {
         self.cpu.step_instr(&mut self.board);
+    }
+
+    pub fn query_video_frame_ready(&self) -> Option<&[ppu::mem_frame::MemPixel]> {
+        self.board.query_video_frame_ready()
     }
 }

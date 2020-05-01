@@ -1,5 +1,7 @@
 use std::convert::TryFrom;
 
+pub const VRAM_START_ADDR: u16 = 0x8000;
+
 pub enum ReadAddr {
     Mem(MemAddr),
     VideoMem(VideoMemAddr),
@@ -40,14 +42,14 @@ pub enum VideoMemAddr {
     OAM(u16),  // 0xFE00 - 0xFE9F
 }
 
-// TODO: Justify this struct and document this whole shiznit
+// TODO: Think about moving Unusable, IO, and IE into this struct so
+// they can share code... is that necessary???
 pub enum HighAddr {}
 
 // 0xFF00 - 0xFF7F
 #[derive(Debug)]
 pub enum IOReg {
-    SB, // 0xFF01
-    SC, // 0xFF02
+    Serial(SerialReg),
     IF, // 0xFF0F
     Apu(ApuReg),
     Ppu(PpuReg),
@@ -62,22 +64,31 @@ impl TryFrom<u16> for IOReg {
         use IOReg::*;
 
         Ok(match addr {
-            0xFF01 => SB,
-            0xFF02 => SC,
+            0xFF01 => Serial(SerialReg::SB),
+            0xFF02 => Serial(SerialReg::SC),
             0xFF0F => IF,
             0xFF14 => Apu(ApuReg::NR14),
             0xFF24 => Apu(ApuReg::NR50),
             0xFF25 => Apu(ApuReg::NR51),
             0xFF26 => Apu(ApuReg::NR52),
             0xFF40 => Ppu(PpuReg::LCDC),
+            0xFF41 => Ppu(PpuReg::LCDS),
             0xFF42 => Ppu(PpuReg::SCY),
+            0xFF43 => Ppu(PpuReg::SCX),
             0xFF44 => Ppu(PpuReg::LY),
+            0xFF45 => Ppu(PpuReg::LYC),
             0xFF47 => Ppu(PpuReg::BGP),
             0xFF50 => BOOT_ROM_DISABLE,
             _ if addr >= 0xFF00 && addr <= 0xFF7F => IOReg::Unimplemented(addr),
             _ => return Err(()),
         })
     }
+}
+
+#[derive(Debug)]
+pub enum SerialReg {
+    SB, // 0xFF01
+    SC, // 0xFF02
 }
 
 #[derive(Debug)]
@@ -91,8 +102,11 @@ pub enum ApuReg {
 #[derive(Debug)]
 pub enum PpuReg {
     LCDC, // 0xFF40
+    LCDS, // 0xFF41
     SCY,  // 0xFF42
+    SCX,  // 0xFF43
     LY,   // 0xFF44
+    LYC,  // 0xFF45
     BGP,  // 0xFF47
 }
 
@@ -119,8 +133,8 @@ impl From<u16> for ReadAddr {
             0x5000 => Mem(ReadOnly(CROMn(addr - 0x4000))),
             0x6000 => Mem(ReadOnly(CROMn(addr - 0x4000))),
             0x7000 => Mem(ReadOnly(CROMn(addr - 0x4000))),
-            0x8000 => VideoMem(VRAM(addr - 0x8000)),
-            0x9000 => VideoMem(VRAM(addr - 0x8000)),
+            0x8000 => VideoMem(VRAM(addr - VRAM_START_ADDR)),
+            0x9000 => VideoMem(VRAM(addr - VRAM_START_ADDR)),
             0xA000 => Mem(ReadWrite(CRAM(addr - 0xA000))),
             0xB000 => Mem(ReadWrite(CRAM(addr - 0xA000))),
             0xC000 => Mem(ReadWrite(WRAM(addr - 0xC000))),
@@ -161,8 +175,8 @@ impl From<u16> for WriteAddr {
             0x5000 => ROM(addr),
             0x6000 => ROM(addr),
             0x7000 => ROM(addr),
-            0x8000 => VideoMem(VRAM(addr - 0x8000)),
-            0x9000 => VideoMem(VRAM(addr - 0x8000)),
+            0x8000 => VideoMem(VRAM(addr - VRAM_START_ADDR)),
+            0x9000 => VideoMem(VRAM(addr - VRAM_START_ADDR)),
             0xA000 => Mem(CRAM(addr - 0xA000)),
             0xB000 => Mem(CRAM(addr - 0xA000)),
             0xC000 => Mem(WRAM(addr - 0xC000)),

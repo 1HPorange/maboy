@@ -7,8 +7,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-winapi = { version = "0.3", features = ["winuser", "windef", "minwindef", "libloaderapi", "errhandlingapi", "ntdef", "d3d11", "d3dcommon", "winerror", "dxgi1_2", "unknwnbase", "dxgiformat", "dxgitype", "dxgi"] } # TODO: Get rid of unused / barely used features
-wio = "0.2" # For the pretty ComPtr implementation
+winapi = { version = "0.3", features = ["libloaderapi",] }
+wio = "0.2" # Because of their pretty ComPtr implementation
 log = "0.4"
 env_logger = "0.7"
 bitflags = "1.2"
