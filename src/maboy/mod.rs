@@ -14,6 +14,7 @@ use memory::{cartridge_mem::CartridgeRam, internal_mem::InternalMem, Memory};
 
 pub use cartridge::Cartridge;
 pub use memory::cartridge_mem::CartridgeMem;
+pub use ppu::mem_frame::MemPixel;
 
 pub struct Emulator<CRAM: CartridgeRam> {
     cpu: CPU,

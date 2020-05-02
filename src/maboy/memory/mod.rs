@@ -7,7 +7,7 @@ use cartridge_mem::{CartridgeMem, CartridgeRam};
 use internal_mem::InternalMem;
 use memory_map::MemoryMap;
 
-pub struct Memory<CRAM: CartridgeRam> {
+pub struct Memory<CRAM> {
     map: MemoryMap,
     internal: InternalMem,
     cartridge: CartridgeMem<CRAM>,

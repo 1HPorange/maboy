@@ -1,8 +1,11 @@
 use super::hresult_error::*;
 use super::window::Window;
-use crate::maboy::mem_frame::{MemFrame, Pixel};
+use crate::maboy::MemPixel;
+use std::marker::PhantomData;
 use std::mem::MaybeUninit;
+use std::pin::Pin;
 use std::ptr;
+use std::rc::Rc;
 use winapi::shared::dxgi::*;
 use winapi::shared::dxgiformat::*;
 use winapi::shared::minwindef::*;
@@ -78,10 +81,7 @@ impl GfxDevice {
         }
     }
 
-    pub fn attach_to_window<'d, 'w>(
-        &'d self,
-        window: &'w Window,
-    ) -> Result<GfxWindow<'d, 'w>, HResultError> {
+    pub fn create_gfx_window(&self, window: &Pin<Box<Window>>) -> Result<GfxWindow, HResultError> {
         unsafe {
             // Create swap-chain
 
@@ -107,7 +107,7 @@ impl GfxDevice {
             self.dxgi_factory
                 .CreateSwapChainForHwnd(
                     self.d.as_raw() as *mut IUnknown,
-                    window.hwnd,
+                    window.hwnd(),
                     &scd,
                     ptr::null(),
                     ptr::null_mut(),
@@ -147,28 +147,28 @@ impl GfxDevice {
             let backbuffer_rtv = ComPtr::from_raw(backbuffer_rtv);
 
             Ok(GfxWindow {
-                device: self,
-                window,
+                device_context: self.dc.clone(),
                 swap_chain,
                 backbuffer,
                 backbuffer_rtv,
                 viewport,
+                _window: PhantomData,
             })
         }
     }
 }
 
-pub struct GfxWindow<'d, 'w> {
-    device: &'d GfxDevice,
-    window: &'w Window,
+pub struct GfxWindow<'w> {
+    device_context: ComPtr<ID3D11DeviceContext>,
     swap_chain: ComPtr<IDXGISwapChain1>,
     backbuffer: ComPtr<ID3D11Texture2D>,
     backbuffer_rtv: ComPtr<ID3D11RenderTargetView>,
     viewport: D3D11_VIEWPORT,
+    _window: PhantomData<&'w ()>,
 }
 
-impl<'d, 'w> GfxWindow<'d, 'w> {
-    pub fn next_frame(&mut self) -> GfxFrame<'_, 'd, 'w> {
+impl<'w> GfxWindow<'w> {
+    pub fn next_frame(&mut self) -> GfxFrame<'_, 'w> {
         unsafe {
             // Note: Seem like we don't need this stuff. I'll leave it out for now
 
@@ -184,33 +184,36 @@ impl<'d, 'w> GfxWindow<'d, 'w> {
     }
 }
 
-pub struct GfxFrame<'f, 'd, 'w>(&'f mut GfxWindow<'d, 'w>);
+pub struct GfxFrame<'a, 'w>(&'a mut GfxWindow<'w>);
 
-impl GfxFrame<'_, '_, '_> {
+impl GfxFrame<'_, '_> {
     pub fn clear(&mut self, color: &[f32; 4]) {
         unsafe {
             // Might need this someday:
             // m_d3dContext->ClearDepthStencilView(m_depthStencilView.Get(),
             //     D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, 1.0f, 0);
 
-            // Appararently, on Xbox One, this need to go BEFORE OMSetRenderTargets: https://github.com/microsoft/DirectXTK/wiki/The-basic-game-loop
+            // Appararently, on Xbox One, this needs to go BEFORE OMSetRenderTargets: https://github.com/microsoft/DirectXTK/wiki/The-basic-game-loop
             self.0
-                .device
-                .dc
+                .device_context
                 .ClearRenderTargetView(self.0.backbuffer_rtv.as_raw(), color);
         }
     }
 
-    pub fn copy_from_slice(&mut self, data: &[Pixel]) {
-        // TODO: Update only the region that is rendered!!! Basically take scx and scy and handle it correctly
+    pub fn copy_from_slice(&mut self, data: &[MemPixel]) {
         unsafe {
-            // TODO: Assert lengths
-            self.0.device.dc.UpdateSubresource(
+            assert_eq!(
+                data.len(),
+                self.0.viewport.Width as usize * self.0.viewport.Height as usize,
+                "Slice does not have the exact number of pixels that the window backbuffer requires"
+            );
+
+            self.0.device_context.UpdateSubresource(
                 self.0.backbuffer.as_raw() as *mut ID3D11Resource,
                 0,
                 ptr::null(),
                 data as *const _ as *const std::ffi::c_void,
-                256 * 4, // TODO: Make all this a little smarter...
+                self.0.viewport.Width as u32 * 4,
                 0,
             );
         }
@@ -240,11 +243,3 @@ impl GfxFrame<'_, '_, '_> {
         }
     }
 }
-
-// pub struct GfxCPUTexture(ComPtr<ID3D11Texture2D>);
-
-// impl GfxCPUTexture {
-//     fn upload_from_slice(&mut self, data: &[Pixel]) {
-
-//     }
-// }

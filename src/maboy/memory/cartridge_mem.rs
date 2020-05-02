@@ -5,7 +5,7 @@ pub trait CartridgeRam {
     fn write8(&self, addr: u16, val: u8);
 }
 
-pub struct CartridgeMem<CRAM: CartridgeRam> {
+pub struct CartridgeMem<CRAM> {
     pub(super) rom: Pin<Box<[u8]>>, // TODO: Can we do it so only MemoryMap sees this?
     pub(super) cram: CRAM,
 }

@@ -3,7 +3,7 @@ use super::interrupt_system::{Interrupt, InterruptSystem};
 use super::memory::{cartridge_mem::CartridgeRam, Memory};
 use super::ppu::PPU;
 use super::serial_port::SerialPort;
-pub struct Board<CRAM: CartridgeRam> {
+pub struct Board<CRAM> {
     mem: Memory<CRAM>,
     ppu: PPU,
     ir_system: InterruptSystem,

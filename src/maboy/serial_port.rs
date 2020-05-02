@@ -12,7 +12,7 @@ impl SerialPort {
         match reg {
             SerialReg::SB => self.sb_reg = val,
             SerialReg::SC if val == 0x81 => print!("{}", self.sb_reg as char),
-            _ => unimplemented!(),
+            _ => println!("Unimplemented write to SC (Serial Port Control) register"),
         }
     }
 

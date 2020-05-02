@@ -89,9 +89,9 @@ impl PPU {
 
             // Pixel Transfer
             Mode::PixelTransfer(43) => self.change_mode(ir_system, Mode::HBlank(1)),
-            Mode::PixelTransfer(pixel_group_idx) if pixel_group_idx <= 40 => {
-                self.push_pixels(pixel_group_idx);
-                Mode::PixelTransfer(pixel_group_idx + 1)
+            Mode::PixelTransfer(n) if n <= 40 => {
+                self.push_pixels(n - 1);
+                Mode::PixelTransfer(n + 1)
             }
             Mode::PixelTransfer(n) => Mode::PixelTransfer(n + 1),
 
@@ -229,7 +229,7 @@ impl PPU {
         let tmy = self.ly.wrapping_add(self.scy_reg) / 8;
         let tdy = self.ly.wrapping_add(self.scy_reg) % 8;
 
-        for px in pixel_group_idx..pixel_group_idx + 4 {
+        for px in pixel_group_idx * 4..pixel_group_idx * 4 + 4 {
             let tmx = px.wrapping_add(self.scx_reg) / 8;
             let tdx = 7 - (px.wrapping_add(self.scx_reg) % 8);
 
