@@ -1,5 +1,6 @@
 use super::util::BitOps;
 
+#[derive(Copy, Clone)]
 #[repr(u8)]
 pub enum Interrupt {
     VBlank = 1 << 0,
@@ -58,7 +59,7 @@ impl InterruptSystem {
         }
     }
 
-    pub fn schedule_interrupt(&mut self, ir: Interrupt) {
-        unimplemented!()
+    pub fn schedule_interrupt(&mut self, interrupt: Interrupt) {
+        self.write_if(self.if_reg | (1 << interrupt as u8))
     }
 }

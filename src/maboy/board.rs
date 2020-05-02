@@ -56,7 +56,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             ROM(addr) => println!("Unimplemented MBC stuff"),
             Mem(mem_addr) => self.mem.write8(mem_addr, val),
             VideoMem(vid_mem_addr) => self.ppu.write_video_mem(vid_mem_addr, val),
-            Unusable => unimplemented!(),
+            Unusable => println!("Unimplemented write to unusable memory"),
             IO(IOReg::Serial(serial_reg)) => self.serial_port.write_reg(serial_reg, val),
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.write_reg(&mut self.ir_system, ppu_reg, val),
             IO(IOReg::BOOT_ROM_DISABLE) => self.mem.write_ff50(val),
@@ -78,15 +78,23 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
         self.write8(addr.wrapping_add(1), (val >> 8) as u8);
     }
 
-    // This method has to sit on Board because it doesn't consume cycles,
-    // unlike other memory access operations. We don't want to give the
-    // CPU the ability to accidentally forget to advance cycles, so we just
-    // put the check for interrupts in here.
-    pub fn query_interrupt_request(&self) -> Option<Interrupt> {
+    pub fn query_video_frame_ready(&self) -> Option<&[super::ppu::mem_frame::MemPixel]> {
+        self.ppu.query_video_frame_ready()
+    }
+
+    // The following methods have to sit on Board because they don't consume
+    // cycles, unlike other memory access operations. The postfix "_instant"
+    // denotes this behaviour.
+
+    pub fn query_interrupt_request_instant(&self) -> Option<Interrupt> {
         self.ir_system.query_interrupt_request()
     }
 
-    pub fn query_video_frame_ready(&self) -> Option<&[super::ppu::mem_frame::MemPixel]> {
-        self.ppu.query_video_frame_ready()
+    pub fn read_if_instant(&self) -> u8 {
+        self.ir_system.read_if()
+    }
+
+    pub fn write_if_instant(&mut self, val: u8) {
+        self.ir_system.write_if(val);
     }
 }

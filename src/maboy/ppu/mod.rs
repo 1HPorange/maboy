@@ -208,8 +208,10 @@ impl PPU {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }
             Mode::VBlank(_) if self.lcds.v_blank_interrupt() => {
-                ir_system.schedule_interrupt(Interrupt::LcdStat)
+                ir_system.schedule_interrupt(Interrupt::LcdStat);
+                ir_system.schedule_interrupt(Interrupt::VBlank);
             }
+            Mode::VBlank(_) => ir_system.schedule_interrupt(Interrupt::VBlank),
             Mode::HBlank(_) if self.lcds.h_blank_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }

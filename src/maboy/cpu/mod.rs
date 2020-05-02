@@ -59,8 +59,8 @@ impl CPU {
     }
 
     pub fn step_instr<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) {
-        match board.query_interrupt_request() {
-            Some(interrupt) if self.ime => self.jmp_to_interrupt_handler(interrupt),
+        match board.query_interrupt_request_instant() {
+            Some(interrupt) if self.ime => self.jmp_to_interrupt_handler(board, interrupt),
             _ => {
                 // Interrupt flags are NOT cleared if we don't take the jump
                 let instr = self.prefetch(board);
@@ -91,8 +91,32 @@ impl CPU {
         result
     }
 
-    fn jmp_to_interrupt_handler(&mut self, interrupt: Interrupt) {
-        unimplemented!()
+    fn jmp_to_interrupt_handler<CRAM: CartridgeRam>(
+        &mut self,
+        board: &mut Board<CRAM>,
+        interrupt: Interrupt,
+    ) {
+        // TODO: Add additional 4 clock wait if waking from HALT (and STOP???)
+        // TODO: Recheck the timing in this function
+
+        self.ime = false;
+
+        // Clear the interrupt request in the IF register
+        board.write_if_instant(board.read_if_instant() & !(interrupt as u8));
+
+        // Timing stuff... The entire thing should take 20 cycles / 5 MCycles
+        board.advance_mcycle(); // 1
+
+        push(self, board, R16::PC); // 2,3,4
+        *self.reg.pc_mut() = match interrupt {
+            Interrupt::VBlank => 0x40,
+            Interrupt::LcdStat => 0x48,
+            Interrupt::Timer => 0x50,
+            Interrupt::Serial => 0x58,
+            Interrupt::Joypad => 0x60,
+        };
+
+        // 5 (The last clock is spent during the next prefetch)
     }
 
     fn set_halt_state(&mut self, halt_state: HaltState) {
