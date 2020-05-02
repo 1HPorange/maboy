@@ -1,5 +1,6 @@
 use super::address::{IOReg, ReadAddr, WriteAddr};
 use super::interrupt_system::{Interrupt, InterruptSystem};
+use super::joypad::JoyPad;
 use super::memory::{cartridge_mem::CartridgeRam, Memory};
 use super::ppu::PPU;
 use super::serial_port::SerialPort;
@@ -7,6 +8,7 @@ pub struct Board<CRAM> {
     mem: Memory<CRAM>,
     ppu: PPU,
     ir_system: InterruptSystem,
+    joypad: JoyPad,
     serial_port: SerialPort,
 }
 
@@ -16,6 +18,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             mem,
             ppu: PPU::new(),
             ir_system: InterruptSystem::new(),
+            joypad: JoyPad::new(),
             serial_port: SerialPort::new(),
         }
     }
@@ -31,6 +34,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             Mem(mem_addr) => self.mem.read8(mem_addr),
             VideoMem(vid_mem_addr) => self.ppu.read_video_mem(vid_mem_addr),
             Unusable => unimplemented!(),
+            IO(IOReg::P1) => self.joypad.read_p1(),
             IO(IOReg::Serial(serial_reg)) => self.serial_port.read_reg(serial_reg),
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.read_reg(ppu_reg),
             IO(IOReg::IF) => self.ir_system.read_if(),
@@ -57,6 +61,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             Mem(mem_addr) => self.mem.write8(mem_addr, val),
             VideoMem(vid_mem_addr) => self.ppu.write_video_mem(vid_mem_addr, val),
             Unusable => println!("Unimplemented write to unusable memory"),
+            IO(IOReg::P1) => self.joypad.write_p1(val),
             IO(IOReg::Serial(serial_reg)) => self.serial_port.write_reg(serial_reg, val),
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.write_reg(&mut self.ir_system, ppu_reg, val),
             IO(IOReg::BOOT_ROM_DISABLE) => self.mem.write_ff50(val),

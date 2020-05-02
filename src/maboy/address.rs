@@ -49,6 +49,7 @@ pub enum HighAddr {}
 // 0xFF00 - 0xFF7F
 #[derive(Debug)]
 pub enum IOReg {
+    P1, // 0xFF00
     Serial(SerialReg),
     IF, // 0xFF0F
     Apu(ApuReg),
@@ -64,6 +65,7 @@ impl TryFrom<u16> for IOReg {
         use IOReg::*;
 
         Ok(match addr {
+            0xFF00 => P1,
             0xFF01 => Serial(SerialReg::SB),
             0xFF02 => Serial(SerialReg::SC),
             0xFF0F => IF,

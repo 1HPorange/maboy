@@ -10,6 +10,7 @@ pub enum Interrupt {
     Joypad = 1 << 4,
 }
 
+/// The read-mask if the IF register
 const IF_MASK: u8 = 0b_1110_0000;
 
 pub struct InterruptSystem {
@@ -20,7 +21,7 @@ pub struct InterruptSystem {
 impl InterruptSystem {
     pub fn new() -> InterruptSystem {
         InterruptSystem {
-            if_reg: 0xff,
+            if_reg: IF_MASK,
             ie_reg: 0x0,
         }
     }
@@ -30,7 +31,7 @@ impl InterruptSystem {
     }
 
     pub fn write_if(&mut self, val: u8) {
-        self.if_reg = IF_MASK | val;
+        self.if_reg = val | IF_MASK;
     }
 
     pub fn read_ie(&self) -> u8 {

@@ -3,6 +3,7 @@ mod board;
 mod cartridge;
 mod cpu;
 mod interrupt_system;
+mod joypad;
 mod memory;
 mod ppu;
 mod serial_port;
