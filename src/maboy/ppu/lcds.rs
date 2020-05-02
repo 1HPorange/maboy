@@ -37,7 +37,7 @@ impl LCDS {
         let mode_mask = 0b_1111_1100;
 
         match mode {
-            Mode::LCDOff => self.0 &= 0b_1111_1000,
+            Mode::LCDOff(_) => self.0 &= 0b_1111_1000,
             Mode::HBlank(_) => self.0 &= mode_mask,
             Mode::VBlank(_) => self.0 = (self.0 & mode_mask) + 1,
             Mode::OAMSearch(_) => self.0 = (self.0 & mode_mask) + 2,

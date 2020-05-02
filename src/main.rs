@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 fn main() {
     // Initialize Emulator
-    let cartridge = Cartridge::from_file("./roms/Dr. Mario (World).gb");
+    let cartridge = Cartridge::from_file("./roms/02-interrupts.gb");
     let cartridge_mem = CartridgeMem::from(cartridge);
 
     let mut emu = Emulator::new(cartridge_mem);
@@ -43,10 +43,17 @@ fn main() {
     loop {
         emu.emulate_step();
 
-        if let Some(frame_data) = emu.query_video_frame_ready() {
-            frame.copy_from_slice(frame_data);
-            frame.present(false).expect("Could not present frame");
-            frame = gfx_window.next_frame();
+        match emu.query_video_frame_status() {
+            VideoFrameStatus::NotReady => (),
+            VideoFrameStatus::Ready(frame_data) => {
+                frame.copy_from_slice(frame_data);
+                frame.present(false).expect("Could not present frame");
+                frame = gfx_window.next_frame();
+            }
+            VideoFrameStatus::LcdTurnedOff => {
+                frame.clear(&[0.0, 0.0, 0.0, 1.0]);
+                frame = gfx_window.next_frame();
+            }
         }
 
         if last_window_msg_poll.elapsed() > Duration::from_millis(16) {

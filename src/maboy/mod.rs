@@ -16,6 +16,7 @@ use memory::{cartridge_mem::CartridgeRam, internal_mem::InternalMem, Memory};
 pub use cartridge::Cartridge;
 pub use memory::cartridge_mem::CartridgeMem;
 pub use ppu::mem_frame::MemPixel;
+pub use ppu::VideoFrameStatus;
 
 pub struct Emulator<CRAM: CartridgeRam> {
     cpu: CPU,
@@ -36,7 +37,7 @@ impl<CRAM: CartridgeRam> Emulator<CRAM> {
         self.cpu.step_instr(&mut self.board);
     }
 
-    pub fn query_video_frame_ready(&self) -> Option<&[ppu::mem_frame::MemPixel]> {
-        self.board.query_video_frame_ready()
+    pub fn query_video_frame_status(&self) -> VideoFrameStatus {
+        self.board.query_video_frame_status()
     }
 }

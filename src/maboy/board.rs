@@ -2,7 +2,7 @@ use super::address::{IOReg, ReadAddr, WriteAddr};
 use super::interrupt_system::{Interrupt, InterruptSystem};
 use super::joypad::JoyPad;
 use super::memory::{cartridge_mem::CartridgeRam, Memory};
-use super::ppu::PPU;
+use super::ppu::{VideoFrameStatus, PPU};
 use super::serial_port::SerialPort;
 pub struct Board<CRAM> {
     mem: Memory<CRAM>,
@@ -83,8 +83,8 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
         self.write8(addr.wrapping_add(1), (val >> 8) as u8);
     }
 
-    pub fn query_video_frame_ready(&self) -> Option<&[super::ppu::mem_frame::MemPixel]> {
-        self.ppu.query_video_frame_ready()
+    pub fn query_video_frame_status(&self) -> VideoFrameStatus {
+        self.ppu.query_frame_status()
     }
 
     // The following methods have to sit on Board because they don't consume

@@ -37,9 +37,15 @@ pub struct PPU {
     vmem_backing: Pin<Box<[u8]>>,
 }
 
+pub enum VideoFrameStatus<'a> {
+    NotReady,
+    LcdTurnedOff,
+    Ready(&'a [MemPixel]),
+}
+
 #[derive(Copy, Clone)]
 pub(super) enum Mode {
-    LCDOff,
+    LCDOff(u8),
 
     /// Mode 0
     HBlank(u8),
@@ -67,7 +73,7 @@ impl PPU {
                 scx_reg: 0,
                 scy_reg: 0,
                 bgp_reg: Palette(0), // TODO: Consider a nicer default, maybe
-                mode: Mode::LCDOff,
+                mode: Mode::LCDOff(1),
                 ly: 0,
                 lcdc: LCDC(0),
                 lcds: LCDS::new(),
@@ -81,7 +87,12 @@ impl PPU {
 
     pub fn advance_mcycle(&mut self, ir_system: &mut InterruptSystem) {
         self.mode = match self.mode {
-            Mode::LCDOff => Mode::LCDOff,
+            Mode::LCDOff(1) => Mode::LCDOff(2),
+            // We don't count up any further here on purpose, as this
+            // could lead to an overflow at some point. We just need the
+            // count on this enum variant to make sure that we only
+            // trigger VideoFrameStatus::LcdTurnedOff once:
+            Mode::LCDOff(n) => Mode::LCDOff(n),
 
             // OAM Search
             Mode::OAMSearch(20) => self.change_mode(ir_system, Mode::PixelTransfer(1)),
@@ -153,11 +164,11 @@ impl PPU {
         }
     }
 
-    pub fn query_video_frame_ready(&self) -> Option<&[MemPixel]> {
-        if let Mode::VBlank(1) = self.mode {
-            Some(self.mem_frame.data())
-        } else {
-            None
+    pub fn query_frame_status(&self) -> VideoFrameStatus {
+        match self.mode {
+            Mode::VBlank(1) => VideoFrameStatus::Ready(self.mem_frame.data()),
+            Mode::LCDOff(1) => VideoFrameStatus::LcdTurnedOff,
+            _ => VideoFrameStatus::NotReady,
         }
     }
 
@@ -177,11 +188,11 @@ impl PPU {
     fn write_lcdc(&mut self, ir_system: &mut InterruptSystem, val: u8) {
         self.lcdc.0 = val;
         if !self.lcdc.lcd_enabled() {
-            if self.ly < 144 && !matches!(self.mode, Mode::LCDOff) {
+            if self.ly < 144 && !matches!(self.mode, Mode::LCDOff(_)) {
                 log::warn!("Didn't wait for VBlank to disable LCD. This may cause damage on real hardware!")
             }
-            self.change_mode(ir_system, Mode::LCDOff);
-        } else if matches!(self.mode, Mode::LCDOff) {
+            self.change_mode(ir_system, Mode::LCDOff(1));
+        } else if matches!(self.mode, Mode::LCDOff(_)) {
             self.ly = 0; // This isn't very nice to have... maybe should go into the mode transitions? Hmmm.
             self.change_mode(ir_system, Mode::OAMSearch(1));
         }
@@ -215,7 +226,7 @@ impl PPU {
             Mode::HBlank(_) if self.lcds.h_blank_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }
-            Mode::LCDOff => self.ly_reg = 0,
+            Mode::LCDOff(_) => self.ly_reg = 0,
             _ => (),
         }
 
