@@ -61,19 +61,19 @@ impl CPU {
     pub fn step_instr<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) {
         match board.query_interrupt_request_instant() {
             Some(interrupt) if self.ime => self.jmp_to_interrupt_handler(board, interrupt),
-            _ => {
-                // Interrupt flags are NOT cleared if we don't take the jump
+            // Interrupt flags are ONLY cleared if we take the jump, so we don't
+            // need to clear them that in any of the other match arms
+            None if matches!(self.halt_state, HaltState::Halted) => {
+                // Just idle until we get an interrupt
+                board.advance_mcycle();
+            }
+            Some(_) if matches!(self.halt_state, HaltState::Halted) => {
+                self.halt_state = HaltState::Running;
                 let instr = self.prefetch(board);
-                // if self.reg.pc() >= 0x100 {
-                //     static mut fuck: usize = 0;
-                //     unsafe {
-                //         fuck += 1;
-                //         if fuck > 200_000 {
-                //             panic!()
-                //         }
-                //     }
-                //     println!("{:#06X}: {:?}", self.reg.pc(), &instr);
-                // }
+                self.execute(board, instr);
+            }
+            _ => {
+                let instr = self.prefetch(board);
                 self.execute(board, instr);
             }
         }
@@ -120,7 +120,10 @@ impl CPU {
     }
 
     fn set_halt_state(&mut self, halt_state: HaltState) {
-        unimplemented!("Attempted to set HaltState {:?}", halt_state);
+        self.halt_state = match halt_state {
+            HaltState::Halted => HaltState::Halted,
+            _ => unimplemented!(),
+        }
     }
 
     fn set_ime(&mut self, ime: bool) {

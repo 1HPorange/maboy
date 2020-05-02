@@ -246,11 +246,13 @@ impl PPU {
             let tmx = px.wrapping_add(self.scx_reg) / 8;
             let tdx = 7 - (px.wrapping_add(self.scx_reg) % 8);
 
-            let tile_id = tm[tmy as usize * 32 + tmx as usize];
+            let tile_id = self
+                .lcdc
+                .transform_tile_map_index(tm[tmy as usize * 32 + tmx as usize]);
             let tile_row_idx = tile_id as usize * 16 + tdy as usize * 2;
 
-            let td_upper = td[tile_row_idx];
-            let td_lower = td[tile_row_idx + 1];
+            let td_lower = td[tile_row_idx];
+            let td_upper = td[tile_row_idx + 1];
 
             let col_raw = (((td_upper >> tdx) & 1) << 1) + ((td_lower >> tdx) & 1);
 

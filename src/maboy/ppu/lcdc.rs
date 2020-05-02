@@ -33,6 +33,15 @@ impl LCDC {
         }
     }
 
+    // TODO: Explain
+    pub fn transform_tile_map_index(&self, index: u8) -> u8 {
+        if self.0.bit(4) {
+            index
+        } else {
+            index.wrapping_add(128)
+        }
+    }
+
     pub fn bg_tile_map_addr(&self) -> u16 {
         if self.0.bit(3) {
             0x9C00 - VRAM_START_ADDR

@@ -34,8 +34,8 @@ impl WindowFactory {
         msg_handler: MsgHandler,
     ) -> Result<Pin<Box<Window>>, WindowCreateError> {
         unsafe {
-            let wnd_class_name = OsString::from(title).encode_wide_with_term();
-            let wnd_name = OsString::from("MaBoy GameBoy Emulator").encode_wide_with_term();
+            let wnd_class_name = OsString::from("MaBoy_Game_Window").encode_wide_with_term();
+            let wnd_name = OsString::from("MaBoy Emulatin'").encode_wide_with_term();
 
             let hinstance = GetModuleHandleW(ptr::null());
 
