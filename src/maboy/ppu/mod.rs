@@ -95,13 +95,17 @@ impl PPU {
             Mode::LCDOff(n) => Mode::LCDOff(n),
 
             // OAM Search
+            Mode::OAMSearch(1) => {
+                self.identify_line_pixel_types();
+                Mode::OAMSearch(2)
+            }
             Mode::OAMSearch(20) => self.change_mode(ir_system, Mode::PixelTransfer(1)),
             Mode::OAMSearch(n) => Mode::OAMSearch(n + 1),
 
             // Pixel Transfer
             Mode::PixelTransfer(43) => self.change_mode(ir_system, Mode::HBlank(1)),
             Mode::PixelTransfer(n) if n <= 40 => {
-                self.push_pixels(n - 1);
+                self.paint_pixel_quad(n - 1);
                 Mode::PixelTransfer(n + 1)
             }
             Mode::PixelTransfer(n) => Mode::PixelTransfer(n + 1),
@@ -233,7 +237,9 @@ impl PPU {
         mode
     }
 
-    fn push_pixels(&mut self, pixel_group_idx: u8) {
+    fn identify_line_pixel_types(&mut self) {}
+
+    fn paint_pixel_quad(&mut self, pixel_quad_idx: u8) {
         let line = self.mem_frame.line(self.ly);
 
         let tm = &self.vram[self.lcdc.bg_tile_map_addr() as usize..];
@@ -242,13 +248,13 @@ impl PPU {
         let tmy = self.ly.wrapping_add(self.scy_reg) / 8;
         let tdy = self.ly.wrapping_add(self.scy_reg) % 8;
 
-        for px in pixel_group_idx * 4..pixel_group_idx * 4 + 4 {
+        for px in pixel_quad_idx * 4..pixel_quad_idx * 4 + 4 {
             let tmx = px.wrapping_add(self.scx_reg) / 8;
             let tdx = 7 - (px.wrapping_add(self.scx_reg) % 8);
 
-            let tile_id = self
-                .lcdc
-                .transform_tile_map_index(tm[tmy as usize * 32 + tmx as usize]);
+            let mut tile_id = tm[tmy as usize * 32 + tmx as usize];
+            tile_id = self.lcdc.transform_tile_map_index(tile_id);
+
             let tile_row_idx = tile_id as usize * 16 + tdy as usize * 2;
 
             let td_lower = td[tile_row_idx];

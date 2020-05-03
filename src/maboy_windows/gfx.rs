@@ -81,13 +81,18 @@ impl GfxDevice {
         }
     }
 
-    pub fn create_gfx_window(&self, window: &Pin<Box<Window>>) -> Result<GfxWindow, HResultError> {
+    pub fn create_gfx_window<I: Into<Option<u32>>>(
+        &self,
+        window: &Pin<Box<Window>>,
+        width: I,
+        height: I,
+    ) -> Result<GfxWindow, HResultError> {
         unsafe {
             // Create swap-chain
 
             let scd = DXGI_SWAP_CHAIN_DESC1 {
-                Width: 0,
-                Height: 0,
+                Width: width.into().unwrap_or(0),
+                Height: height.into().unwrap_or(0),
                 // For a flip-model swap chain (that is, a swap chain that has the DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL value set in the SwapEffect member), you must set the Format member to DXGI_FORMAT_R16G16B16A16_FLOAT, DXGI_FORMAT_B8G8R8A8_UNORM, or DXGI_FORMAT_R8G8B8A8_UNORM;
                 Format: DXGI_FORMAT_R8G8B8A8_UNORM,
                 Stereo: FALSE,

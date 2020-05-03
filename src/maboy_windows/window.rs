@@ -11,7 +11,7 @@ pub struct Window {
     _pin: PhantomPinned,
 }
 
-pub type MsgHandler = fn(UINT, WPARAM, LPARAM) -> MsgHandlerResult;
+pub type MsgHandler = fn(u32, usize, isize) -> MsgHandlerResult;
 
 pub enum MsgHandlerResult {
     RunDefaultMsgHandler,

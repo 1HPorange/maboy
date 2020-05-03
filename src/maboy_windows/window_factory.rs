@@ -131,7 +131,7 @@ unsafe extern "system" fn wnd_proc_dispatch(
 ) -> LRESULT {
     if msg == WM_DESTROY {
         PostQuitMessage(0);
-        panic!("TODO: Hanlde window close nicely"); // TODO: Some kind of mechanism to tell the window factory that no window is alive
+        panic!("TODO: Handle window close nicely"); // TODO: Some kind of mechanism to tell the window factory that no window is alive
         return 0;
     }
 

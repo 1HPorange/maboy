@@ -16,16 +16,19 @@ fn main() {
     // Initialize Window
     let mut window_factory = WindowFactory::new();
     let game_window = window_factory
-        .create_window("MaBoy Emulatin'", 160, 144, |msg, w_param, l_param| {
-            MsgHandlerResult::RunDefaultMsgHandler
-        })
+        .create_window(
+            "MaBoy Emulatin'",
+            160 * 4,
+            144 * 4,
+            |msg, w_param, l_param| MsgHandlerResult::RunDefaultMsgHandler,
+        )
         .expect("Could not create game window");
     game_window.show();
 
     // Initialize DirectX to draw into the window
     let gfx_device = GfxDevice::new().expect("Could not access graphics device");
     let mut gfx_window = gfx_device
-        .create_gfx_window(&game_window)
+        .create_gfx_window(&game_window, 160, 144)
         .expect("Could not attach graphics device to game window");
 
     // Clear first frame to black (screen off)
@@ -52,6 +55,7 @@ fn main() {
             }
             VideoFrameStatus::LcdTurnedOff => {
                 frame.clear(&[0.0, 0.0, 0.0, 1.0]);
+                frame.present(false).expect("Could not present frame");
                 frame = gfx_window.next_frame();
             }
         }
