@@ -1,6 +1,6 @@
-use crate::maboy::address::VRAM_START_ADDR;
 use crate::maboy::util::BitOps;
 
+#[derive(Copy, Clone)]
 pub struct LCDC(pub u8);
 
 pub enum SpriteSize {
@@ -13,11 +13,13 @@ impl LCDC {
         self.0.bit(7)
     }
 
-    pub fn window_tile_map_addr(&self) -> u16 {
+    // TODO: Explain what this offset shiznit is about
+
+    pub fn wnd_tile_map_offset(&self) -> u16 {
         if self.0.bit(6) {
-            0x9C00 - VRAM_START_ADDR
+            0x400
         } else {
-            0x9800 - VRAM_START_ADDR
+            0
         }
     }
 
@@ -25,28 +27,15 @@ impl LCDC {
         self.0.bit(5)
     }
 
-    pub fn bg_window_tile_data_addr(&self) -> u16 {
-        if self.0.bit(4) {
-            0x8000 - VRAM_START_ADDR
-        } else {
-            0x8800 - VRAM_START_ADDR
-        }
+    pub fn bg_window_tile_data_start_at_0x8000(&self) -> bool {
+        self.0.bit(4)
     }
 
-    // TODO: Explain
-    pub fn transform_tile_map_index(&self, index: u8) -> u8 {
-        if self.0.bit(4) {
-            index
-        } else {
-            index.wrapping_add(128)
-        }
-    }
-
-    pub fn bg_tile_map_addr(&self) -> u16 {
+    pub fn bg_tile_map_offset(&self) -> u16 {
         if self.0.bit(3) {
-            0x9C00 - VRAM_START_ADDR
+            0x400
         } else {
-            0x9800 - VRAM_START_ADDR
+            0
         }
     }
 

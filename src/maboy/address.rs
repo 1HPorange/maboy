@@ -1,7 +1,5 @@
 use std::convert::TryFrom;
 
-pub const VRAM_START_ADDR: u16 = 0x8000;
-
 pub enum ReadAddr {
     Mem(MemAddr),
     VideoMem(VideoMemAddr),
@@ -38,8 +36,9 @@ pub enum ReadWriteMemAddr {
 }
 
 pub enum VideoMemAddr {
-    VRAM(u16), // 0x8000 - 0x9FFF
-    OAM(u16),  // 0xFE00 - 0xFE9F
+    TileData(u16), // 0x8000 - 0x97FF
+    TileMaps(u16), // 0x9800 - 0x9FFF
+    OAM(u16),      // 0xFE00 - 0xFE9F
 }
 
 // TODO: Think about moving Unusable, IO, and IE into this struct so
@@ -80,6 +79,10 @@ impl TryFrom<u16> for IOReg {
             0xFF44 => Ppu(PpuReg::LY),
             0xFF45 => Ppu(PpuReg::LYC),
             0xFF47 => Ppu(PpuReg::BGP),
+            0xFF48 => Ppu(PpuReg::OBP0),
+            0xFF49 => Ppu(PpuReg::OBP1),
+            0xFF4A => Ppu(PpuReg::WY),
+            0xFF4B => Ppu(PpuReg::WX),
             0xFF50 => BOOT_ROM_DISABLE,
             _ if addr >= 0xFF00 && addr <= 0xFF7F => IOReg::Unimplemented(addr),
             _ => return Err(()),
@@ -101,7 +104,8 @@ pub enum ApuReg {
     NR52, // 0xFF26
 }
 
-#[derive(Debug)]
+// TODO: Nice Copy derives for all of these
+#[derive(Debug, Copy, Clone)]
 pub enum PpuReg {
     LCDC, // 0xFF40
     LCDS, // 0xFF41
@@ -110,7 +114,13 @@ pub enum PpuReg {
     LY,   // 0xFF44
     LYC,  // 0xFF45
     BGP,  // 0xFF47
+    OBP0, // 0xFF48
+    OBP1, // 0xFF49
+    WY,   // 0xFF4A
+    WX,   // 0xFF4B
 }
+
+// TODO: Get rid of the duplication below, if possible without losing performance
 
 impl From<u16> for ReadAddr {
     fn from(addr: u16) -> Self {
@@ -135,8 +145,14 @@ impl From<u16> for ReadAddr {
             0x5000 => Mem(ReadOnly(CROMn(addr - 0x4000))),
             0x6000 => Mem(ReadOnly(CROMn(addr - 0x4000))),
             0x7000 => Mem(ReadOnly(CROMn(addr - 0x4000))),
-            0x8000 => VideoMem(VRAM(addr - VRAM_START_ADDR)),
-            0x9000 => VideoMem(VRAM(addr - VRAM_START_ADDR)),
+            0x8000 => VideoMem(TileData(addr - 0x8000)),
+            0x9000 => {
+                if addr < 0x9800 {
+                    VideoMem(TileData(addr - 0x8000))
+                } else {
+                    VideoMem(TileMaps(addr - 0x9800))
+                }
+            }
             0xA000 => Mem(ReadWrite(CRAM(addr - 0xA000))),
             0xB000 => Mem(ReadWrite(CRAM(addr - 0xA000))),
             0xC000 => Mem(ReadWrite(WRAM(addr - 0xC000))),
@@ -177,8 +193,14 @@ impl From<u16> for WriteAddr {
             0x5000 => ROM(addr),
             0x6000 => ROM(addr),
             0x7000 => ROM(addr),
-            0x8000 => VideoMem(VRAM(addr - VRAM_START_ADDR)),
-            0x9000 => VideoMem(VRAM(addr - VRAM_START_ADDR)),
+            0x8000 => VideoMem(TileData(addr - 0x8000)),
+            0x9000 => {
+                if addr < 0x9800 {
+                    VideoMem(TileData(addr - 0x8000))
+                } else {
+                    VideoMem(TileMaps(addr - 0x9800))
+                }
+            }
             0xA000 => Mem(CRAM(addr - 0xA000)),
             0xB000 => Mem(CRAM(addr - 0xA000)),
             0xC000 => Mem(WRAM(addr - 0xC000)),

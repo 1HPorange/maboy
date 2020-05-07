@@ -14,6 +14,15 @@ impl Color {
         Color(col_raw)
     }
 
+    // Creates a color from the two least significant bytes of a u8
+    pub fn from_u8_lsb(col_raw: u8) -> Color {
+        Color(col_raw & 0b11)
+    }
+
+    pub fn is_zero(&self) -> bool {
+        self.0 == 0
+    }
+
     pub fn into_val(self) -> ColorVal {
         unsafe { std::mem::transmute(self) }
     }

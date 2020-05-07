@@ -10,6 +10,7 @@ edition = "2018"
 log = "0.4"
 env_logger = "0.7"
 bitflags = "1.2"
+fixedbitset = "0.3"
 
 # TODO: Hide this behind platform specific compilation
 winapi = { version = "0.3", features = ["libloaderapi", "winuser", "errhandlingapi", "windef", "minwindef", "d3d11", "d3dcommon", "dxgi1_2"] }

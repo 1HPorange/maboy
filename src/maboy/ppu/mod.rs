@@ -2,39 +2,47 @@ mod color;
 mod lcdc;
 mod lcds;
 pub mod mem_frame;
+mod oam;
 mod palette;
+mod pixel_queue;
+mod ppu_registers;
+mod sprite;
+mod tile_data;
+mod tile_maps;
 
 use crate::maboy::address::{PpuReg, VideoMemAddr};
 use crate::maboy::interrupt_system::{Interrupt, InterruptSystem};
-use color::Color;
 use lcdc::LCDC;
 use lcds::LCDS;
 use mem_frame::{MemFrame, MemPixel};
+use oam::OAM;
 use palette::Palette;
-use std::pin::Pin;
+use pixel_queue::PixelQueue;
+use ppu_registers::PPURegisters;
+use tile_data::TileData;
+use tile_maps::TileMaps;
 
 const VRAM_LEN: usize = 0xA000 - 0x8000;
 const OAM_LEN: usize = 0xFEA0 - 0xFE00;
 
 // TODO: This whole file is kind of messy. Rethink the state machine approach.
 
+// TODO: Consistent naming of PPU vs Ppu
+
 /// This thing is NOT cycle-accurate yet, because it is a nightmare to figure out.
 /// However, if you understand how to do it, it should be possible without any
 /// changes to the public-facing API of this struct.
 pub struct PPU {
-    ly_reg: u8,
-    lyc_reg: u8,
-    scx_reg: u8,
-    scy_reg: u8,
-    bgp_reg: Palette,
-    mode: Mode,
-    ly: u8,
-    lcdc: LCDC,
-    lcds: LCDS,
-    vram: &'static mut [u8],
-    oam: &'static mut [u8],
+    reg: PPURegisters,
+    mode: Mode, // TODO: Extract this thing into its own struct
+    /// Changes to the WY register are only recognized at frame start,
+    /// so we save the original value in here for the duration of 1 frame.
+    wy: u8,
+    tile_data: TileData,
+    tile_maps: TileMaps,
+    oam: OAM,
+    pixel_queue: PixelQueue,
     mem_frame: MemFrame,
-    vmem_backing: Pin<Box<[u8]>>,
 }
 
 pub enum VideoFrameStatus<'a> {
@@ -62,26 +70,15 @@ pub(super) enum Mode {
 
 impl PPU {
     pub fn new() -> PPU {
-        use std::mem::transmute as forget_lifetime;
-
-        let mut vmem_backing = Pin::new(vec![0; VRAM_LEN + OAM_LEN].into_boxed_slice());
-
-        unsafe {
-            PPU {
-                ly_reg: 0,
-                lyc_reg: 0,
-                scx_reg: 0,
-                scy_reg: 0,
-                bgp_reg: Palette(0), // TODO: Consider a nicer default, maybe
-                mode: Mode::LCDOff(1),
-                ly: 0,
-                lcdc: LCDC(0),
-                lcds: LCDS::new(),
-                vram: forget_lifetime(&mut vmem_backing[..VRAM_LEN]),
-                oam: forget_lifetime(&mut vmem_backing[VRAM_LEN..VRAM_LEN + OAM_LEN]),
-                mem_frame: MemFrame::new(),
-                vmem_backing,
-            }
+        PPU {
+            reg: PPURegisters::new(),
+            mode: Mode::LCDOff(1),
+            wy: 0,
+            tile_data: TileData::new(),
+            tile_maps: TileMaps::new(),
+            oam: OAM::new(),
+            pixel_queue: PixelQueue::new(),
+            mem_frame: MemFrame::new(),
         }
     }
 
@@ -96,75 +93,61 @@ impl PPU {
 
             // OAM Search
             Mode::OAMSearch(1) => {
-                self.identify_line_pixel_types();
+                self.oam.rebuild();
+                self.tile_data.rebuild();
+
+                self.pixel_queue.push_scanline(
+                    &self.reg,
+                    &self.tile_maps,
+                    &self.tile_data,
+                    &self.oam,
+                );
                 Mode::OAMSearch(2)
             }
-            Mode::OAMSearch(20) => self.change_mode(ir_system, Mode::PixelTransfer(1)),
+            Mode::OAMSearch(20) => {
+                self.change_mode_with_interrupts(ir_system, Mode::PixelTransfer(1))
+            }
             Mode::OAMSearch(n) => Mode::OAMSearch(n + 1),
 
             // Pixel Transfer
-            Mode::PixelTransfer(43) => self.change_mode(ir_system, Mode::HBlank(1)),
+            Mode::PixelTransfer(43) => self.change_mode_with_interrupts(ir_system, Mode::HBlank(1)),
             Mode::PixelTransfer(n) if n <= 40 => {
-                self.paint_pixel_quad(n - 1);
+                self.pixel_queue.pop_pixel_quad(
+                    &self.tile_data,
+                    &self.tile_maps,
+                    &self.reg,
+                    self.mem_frame.line(self.reg.ly),
+                    n - 1,
+                );
                 Mode::PixelTransfer(n + 1)
             }
             Mode::PixelTransfer(n) => Mode::PixelTransfer(n + 1),
 
             // HBlank
-            Mode::HBlank(51) if self.ly == 143 => {
-                self.set_ly(ir_system, self.ly + 1);
-                self.change_mode(ir_system, Mode::VBlank(1))
+            Mode::HBlank(51) if self.reg.ly == 143 => {
+                self.set_ly(ir_system, self.reg.ly + 1);
+                self.change_mode_with_interrupts(ir_system, Mode::VBlank(1))
             }
             Mode::HBlank(51) => {
-                self.set_ly(ir_system, self.ly + 1);
-                self.change_mode(ir_system, Mode::OAMSearch(1))
+                self.set_ly(ir_system, self.reg.ly + 1);
+                self.change_mode_with_interrupts(ir_system, Mode::OAMSearch(1))
             }
             Mode::HBlank(n) => Mode::HBlank(n + 1),
 
             // VBlank
-            Mode::VBlank(n) if n % 114 == 0 && n < 1140 => {
-                self.set_ly(ir_system, self.ly + 1);
-                Mode::VBlank(n + 1)
-            }
             Mode::VBlank(1140) => {
                 self.set_ly(ir_system, 0); // TODO: I think this happens earlier
-                self.change_mode(ir_system, Mode::OAMSearch(1))
+
+                // Save value of WY register for the duration of a frame
+                self.wy = self.reg.wy;
+
+                self.change_mode_with_interrupts(ir_system, Mode::OAMSearch(1))
+            }
+            Mode::VBlank(n) if n % 114 == 0 => {
+                self.set_ly(ir_system, self.reg.ly + 1);
+                Mode::VBlank(n + 1)
             }
             Mode::VBlank(n) => Mode::VBlank(n + 1),
-        }
-    }
-
-    pub fn read_reg(&self, reg: PpuReg) -> u8 {
-        match reg {
-            PpuReg::LCDC => self.lcdc.0,
-            PpuReg::LCDS => self.lcds.read(),
-            PpuReg::SCX => self.scx_reg,
-            PpuReg::SCY => self.scy_reg,
-            PpuReg::LY => self.ly_reg,
-            PpuReg::LYC => self.lyc_reg,
-            PpuReg::BGP => self.bgp_reg.0,
-        }
-    }
-
-    pub fn write_reg(&mut self, ir_system: &mut InterruptSystem, reg: PpuReg, val: u8) {
-        match reg {
-            PpuReg::LCDC => self.write_lcdc(ir_system, val),
-            PpuReg::LCDS => self.lcds.write(val),
-            PpuReg::SCX => self.scx_reg = val,
-            PpuReg::SCY => self.scy_reg = val,
-            PpuReg::LY => self.ly_reg = 0, // Not a typo! LY resets (temporarily) on write!
-            PpuReg::LYC => self.lyc_reg = val,
-            PpuReg::BGP => self.bgp_reg.0 = val,
-        }
-    }
-
-    pub fn read_video_mem(&mut self, addr: VideoMemAddr) -> u8 {
-        self.get_mem_addr(addr).map(|val| *val).unwrap_or(0xff)
-    }
-
-    pub fn write_video_mem(&mut self, addr: VideoMemAddr, val: u8) {
-        if let Some(mut_ref) = self.get_mem_addr(addr) {
-            *mut_ref = val;
         }
     }
 
@@ -176,95 +159,112 @@ impl PPU {
         }
     }
 
-    /// Retrieves an address in OAM or VRAM if currently accessible
-    fn get_mem_addr(&mut self, addr: VideoMemAddr) -> Option<&mut u8> {
-        match addr {
-            VideoMemAddr::VRAM(addr) if !matches!(self.mode, Mode::PixelTransfer(_)) => {
-                Some(&mut self.vram[addr as usize])
-            }
-            VideoMemAddr::OAM(addr) if !matches!(self.mode, Mode::OAMSearch(_) | Mode::PixelTransfer(_)) => {
-                Some(&mut self.oam[addr as usize])
-            }
-            _ => None,
+    pub fn read_reg(&self, reg: PpuReg) -> u8 {
+        self.reg.cpu_read(reg)
+    }
+
+    pub fn write_reg(&mut self, ir_system: &mut InterruptSystem, reg: PpuReg, val: u8) {
+        self.reg.cpu_write(reg, val);
+
+        match reg {
+            PpuReg::LCDC => self.notify_lcdc_changed(ir_system),
+            _ => (),
         }
     }
 
-    fn write_lcdc(&mut self, ir_system: &mut InterruptSystem, val: u8) {
-        self.lcdc.0 = val;
-        if !self.lcdc.lcd_enabled() {
-            if self.ly < 144 && !matches!(self.mode, Mode::LCDOff(_)) {
+    pub fn read_video_mem(&self, addr: VideoMemAddr) -> u8 {
+        match addr {
+            VideoMemAddr::TileData(addr) if self.vram_accessible() => self.tile_data[addr],
+            VideoMemAddr::TileMaps(addr) if self.vram_accessible() => {
+                self.tile_maps.mem[addr as usize]
+            }
+            VideoMemAddr::OAM(addr) if self.oam_accessible() => self.oam[addr],
+            _ => 0xff,
+        }
+    }
+
+    pub fn write_video_mem(&mut self, addr: VideoMemAddr, val: u8) {
+        match addr {
+            VideoMemAddr::TileData(addr) if self.vram_accessible() => self.tile_data[addr] = val,
+            VideoMemAddr::TileMaps(addr) if self.vram_accessible() => {
+                self.tile_maps.mem[addr as usize] = val
+            }
+            VideoMemAddr::OAM(addr) if self.oam_accessible() => self.oam[addr] = val,
+            _ => (),
+        }
+    }
+
+    fn vram_accessible(&self) -> bool {
+        !matches!(self.mode, Mode::PixelTransfer(_))
+    }
+
+    fn oam_accessible(&self) -> bool {
+        !matches!(self.mode, Mode::OAMSearch(_) | Mode::PixelTransfer(_))
+    }
+
+    fn notify_lcdc_changed(&mut self, ir_system: &mut InterruptSystem) {
+        self.tile_maps.notify_lcdc_changed(self.reg.lcdc);
+        self.oam.notify_lcdc_changed(self.reg.lcdc);
+
+        if self.reg.lcdc.lcd_enabled() {
+            if self.reg.ly < 144 && !matches!(self.mode, Mode::LCDOff(_)) {
                 log::warn!("Didn't wait for VBlank to disable LCD. This may cause damage on real hardware!")
             }
-            self.change_mode(ir_system, Mode::LCDOff(1));
-        } else if matches!(self.mode, Mode::LCDOff(_)) {
-            self.ly = 0; // This isn't very nice to have... maybe should go into the mode transitions? Hmmm.
-            self.change_mode(ir_system, Mode::OAMSearch(1));
+
+            if matches!(self.mode, Mode::LCDOff(_)) {
+                // Turn LCD on
+                self.change_mode_with_interrupts(ir_system, Mode::OAMSearch(1));
+
+                // When turning back on, we can trigger a potentially outstanding LYC interrupt
+                self.set_ly(ir_system, 0);
+
+                // Save value of WY register for the duration of a frame
+                self.wy = self.reg.wy;
+            }
+        } else {
+            if !matches!(self.mode, Mode::LCDOff(_)) {
+                // Turn LCD off
+
+                // Do NOT use set_ly here, since we don't trigger LYC interrupts here
+                // even if LYC = 0
+                self.reg.ly = 0;
+
+                self.change_mode_with_interrupts(ir_system, Mode::LCDOff(1));
+            }
         }
     }
 
     fn set_ly(&mut self, ir_system: &mut InterruptSystem, ly: u8) {
-        self.ly = ly;
-        self.ly_reg = ly;
+        self.reg.ly = ly;
 
-        let lyc_equals_ly = ly == self.lyc_reg;
-        self.lcds.set_lyc_equals_ly(lyc_equals_ly);
+        let lyc_equals_ly = ly == self.reg.lyc;
+        self.reg.lcds.set_lyc_equals_ly(lyc_equals_ly);
 
-        if lyc_equals_ly && self.lcds.ly_coincidence_interrupt() {
+        if lyc_equals_ly && self.reg.lcds.ly_coincidence_interrupt() {
             ir_system.schedule_interrupt(Interrupt::LcdStat);
         }
     }
 
-    fn change_mode(&mut self, ir_system: &mut InterruptSystem, mode: Mode) -> Mode {
+    // TODO: Replace with individual "change-to-mode" functions
+    fn change_mode_with_interrupts(&mut self, ir_system: &mut InterruptSystem, mode: Mode) -> Mode {
         self.mode = mode;
-        self.lcds.set_mode(mode);
+        self.reg.lcds.set_mode(mode);
 
         match mode {
-            Mode::OAMSearch(_) if self.lcds.oam_search_interrupt() => {
+            Mode::OAMSearch(_) if self.reg.lcds.oam_search_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }
-            Mode::VBlank(_) if self.lcds.v_blank_interrupt() => {
+            Mode::VBlank(_) if self.reg.lcds.v_blank_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat);
                 ir_system.schedule_interrupt(Interrupt::VBlank);
             }
             Mode::VBlank(_) => ir_system.schedule_interrupt(Interrupt::VBlank),
-            Mode::HBlank(_) if self.lcds.h_blank_interrupt() => {
+            Mode::HBlank(_) if self.reg.lcds.h_blank_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }
-            Mode::LCDOff(_) => self.ly_reg = 0,
             _ => (),
         }
 
         mode
-    }
-
-    fn identify_line_pixel_types(&mut self) {}
-
-    fn paint_pixel_quad(&mut self, pixel_quad_idx: u8) {
-        let line = self.mem_frame.line(self.ly);
-
-        let tm = &self.vram[self.lcdc.bg_tile_map_addr() as usize..];
-        let td = &self.vram[self.lcdc.bg_window_tile_data_addr() as usize..];
-
-        let tmy = self.ly.wrapping_add(self.scy_reg) / 8;
-        let tdy = self.ly.wrapping_add(self.scy_reg) % 8;
-
-        for px in pixel_quad_idx * 4..pixel_quad_idx * 4 + 4 {
-            let tmx = px.wrapping_add(self.scx_reg) / 8;
-            let tdx = 7 - (px.wrapping_add(self.scx_reg) % 8);
-
-            let mut tile_id = tm[tmy as usize * 32 + tmx as usize];
-            tile_id = self.lcdc.transform_tile_map_index(tile_id);
-
-            let tile_row_idx = tile_id as usize * 16 + tdy as usize * 2;
-
-            let td_lower = td[tile_row_idx];
-            let td_upper = td[tile_row_idx + 1];
-
-            let col_raw = (((td_upper >> tdx) & 1) << 1) + ((td_lower >> tdx) & 1);
-
-            let col = self.bgp_reg.apply(col_raw);
-
-            line[px as usize] = MemPixel::from(col);
-        }
     }
 }

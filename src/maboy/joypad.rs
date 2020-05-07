@@ -1,3 +1,5 @@
+// TODO: See if this can all be Copy and take self as parameter
+
 pub struct JoyPad {
     /// aka JOYP
     p1_reg: u8,

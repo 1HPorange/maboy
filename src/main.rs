@@ -40,7 +40,8 @@ fn main() {
 
     let mut frame = gfx_window.next_frame();
 
-    // Set an interval for polling window messages
+    // When window messages for this thread were last polled and distributed to
+    // all windows that were created on this thread.
     let mut last_window_msg_poll = Instant::now();
 
     loop {
@@ -60,6 +61,7 @@ fn main() {
             }
         }
 
+        // TODO: Think about the timing of this
         if last_window_msg_poll.elapsed() > Duration::from_millis(16) {
             window_factory.dispatch_window_msgs();
             last_window_msg_poll = Instant::now();

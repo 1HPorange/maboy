@@ -1,6 +1,7 @@
 use super::Mode;
 use crate::maboy::util::BitOps;
 
+#[derive(Copy, Clone)]
 pub struct LCDS(u8);
 
 impl LCDS {

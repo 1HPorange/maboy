@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::pin::Pin;
 use std::ptr;
-use std::rc::Rc;
 use winapi::shared::dxgi::*;
 use winapi::shared::dxgiformat::*;
 use winapi::shared::minwindef::*;

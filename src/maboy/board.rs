@@ -33,7 +33,8 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
         let result = match ReadAddr::from(addr) {
             Mem(mem_addr) => self.mem.read8(mem_addr),
             VideoMem(vid_mem_addr) => self.ppu.read_video_mem(vid_mem_addr),
-            Unusable => unimplemented!(),
+            // TODO: Research if read of Unusable always return 0 even in different PPU modes
+            Unusable => 0, // Reads from here curiously return 0 on DMG systems
             IO(IOReg::P1) => self.joypad.read_p1(),
             IO(IOReg::Serial(serial_reg)) => self.serial_port.read_reg(serial_reg),
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.read_reg(ppu_reg),
@@ -43,7 +44,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             }
             IO(reg) => {
                 println!("Unimplemented IO register read: {:?}", reg);
-                0x0 // TODO: FIX!
+                0xff // TODO: FIX!
             }
             IE => self.ir_system.read_ie(),
         };
@@ -60,7 +61,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             ROM(addr) => println!("Unimplemented MBC stuff"),
             Mem(mem_addr) => self.mem.write8(mem_addr, val),
             VideoMem(vid_mem_addr) => self.ppu.write_video_mem(vid_mem_addr, val),
-            Unusable => println!("Unimplemented write to unusable memory"),
+            Unusable => (), // Writes to here are ignored by DMG systems
             IO(IOReg::P1) => self.joypad.write_p1(val),
             IO(IOReg::Serial(serial_reg)) => self.serial_port.write_reg(serial_reg, val),
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.write_reg(&mut self.ir_system, ppu_reg, val),
