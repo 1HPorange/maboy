@@ -61,6 +61,6 @@ impl InterruptSystem {
     }
 
     pub fn schedule_interrupt(&mut self, interrupt: Interrupt) {
-        self.write_if(self.if_reg | (1 << interrupt as u8))
+        self.write_if(self.if_reg | (interrupt as u8))
     }
 }
