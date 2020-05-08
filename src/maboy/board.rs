@@ -4,12 +4,14 @@ use super::joypad::{Buttons, JoyPad};
 use super::memory::{cartridge_mem::CartridgeRam, Memory};
 use super::ppu::{VideoFrameStatus, PPU};
 use super::serial_port::SerialPort;
+use super::timer::Timer;
 
 pub struct Board<CRAM> {
     mem: Memory<CRAM>,
     ppu: PPU,
     ir_system: InterruptSystem,
     pub joypad: JoyPad,
+    timer: Timer,
     serial_port: SerialPort,
 }
 
@@ -20,11 +22,13 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             ppu: PPU::new(),
             ir_system: InterruptSystem::new(),
             joypad: JoyPad::new(),
+            timer: Timer::new(),
             serial_port: SerialPort::new(),
         }
     }
 
     pub fn advance_mcycle(&mut self) {
+        self.timer.advance_mcycle(&mut self.ir_system);
         self.ppu.advance_mcycle(&mut self.ir_system);
     }
 
@@ -38,6 +42,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             Unusable => 0, // Reads from here curiously return 0 on DMG systems
             IO(IOReg::P1) => self.joypad.read_p1(),
             IO(IOReg::Serial(serial_reg)) => self.serial_port.read_reg(serial_reg),
+            IO(IOReg::Timer(timer_reg)) => self.timer.read_reg(timer_reg),
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.read_reg(ppu_reg),
             IO(IOReg::IF) => self.ir_system.read_if(),
             IO(IOReg::Unimplemented(addr)) => {
@@ -65,8 +70,9 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             Unusable => (), // Writes to here are ignored by DMG systems
             IO(IOReg::P1) => self.joypad.write_p1(val),
             IO(IOReg::Serial(serial_reg)) => self.serial_port.write_reg(serial_reg, val),
+            IO(IOReg::Timer(timer_reg)) => self.timer.write_reg(timer_reg, val),
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.write_reg(&mut self.ir_system, ppu_reg, val),
-            IO(IOReg::BOOT_ROM_DISABLE) => self.mem.write_ff50(val),
+            IO(IOReg::BootRomDisable) => self.mem.write_ff50(val),
             IO(IOReg::IF) => self.ir_system.write_if(val),
             IO(IOReg::Unimplemented(addr)) => println!("Unimplemented IO write: {:#06X}", addr),
             IO(reg) => println!("Unimplemented IO write: {:?}", reg),

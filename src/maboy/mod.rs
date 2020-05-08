@@ -7,6 +7,7 @@ mod joypad;
 mod memory;
 mod ppu;
 mod serial_port;
+mod timer;
 mod util;
 
 use board::Board;

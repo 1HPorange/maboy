@@ -50,10 +50,11 @@ pub enum HighAddr {}
 pub enum IOReg {
     P1, // 0xFF00
     Serial(SerialReg),
+    Timer(TimerReg),
     IF, // 0xFF0F
     Apu(ApuReg),
     Ppu(PpuReg),
-    BOOT_ROM_DISABLE,   // 0xFF50
+    BootRomDisable,     // 0xFF50
     Unimplemented(u16), // TODO: Get rid of this variant
 }
 
@@ -67,6 +68,10 @@ impl TryFrom<u16> for IOReg {
             0xFF00 => P1,
             0xFF01 => Serial(SerialReg::SB),
             0xFF02 => Serial(SerialReg::SC),
+            0xFF04 => Timer(TimerReg::DIV),
+            0xFF05 => Timer(TimerReg::TIMA),
+            0xFF06 => Timer(TimerReg::TMA),
+            0xFF07 => Timer(TimerReg::TAC),
             0xFF0F => IF,
             0xFF14 => Apu(ApuReg::NR14),
             0xFF24 => Apu(ApuReg::NR50),
@@ -83,7 +88,7 @@ impl TryFrom<u16> for IOReg {
             0xFF49 => Ppu(PpuReg::OBP1),
             0xFF4A => Ppu(PpuReg::WY),
             0xFF4B => Ppu(PpuReg::WX),
-            0xFF50 => BOOT_ROM_DISABLE,
+            0xFF50 => BootRomDisable,
             _ if addr >= 0xFF00 && addr <= 0xFF7F => IOReg::Unimplemented(addr),
             _ => return Err(()),
         })
@@ -118,6 +123,14 @@ pub enum PpuReg {
     OBP1, // 0xFF49
     WY,   // 0xFF4A
     WX,   // 0xFF4B
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum TimerReg {
+    DIV,  // 0xFF04
+    TIMA, // 0xFF05
+    TMA,  // 0xFF06
+    TAC,  // 0xFF07
 }
 
 // TODO: Get rid of the duplication below, if possible without losing performance
