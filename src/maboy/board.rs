@@ -1,14 +1,15 @@
 use super::address::{IOReg, ReadAddr, WriteAddr};
 use super::interrupt_system::{Interrupt, InterruptSystem};
-use super::joypad::JoyPad;
+use super::joypad::{Buttons, JoyPad};
 use super::memory::{cartridge_mem::CartridgeRam, Memory};
 use super::ppu::{VideoFrameStatus, PPU};
 use super::serial_port::SerialPort;
+
 pub struct Board<CRAM> {
     mem: Memory<CRAM>,
     ppu: PPU,
     ir_system: InterruptSystem,
-    joypad: JoyPad,
+    pub joypad: JoyPad,
     serial_port: SerialPort,
 }
 
@@ -86,6 +87,20 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
 
     pub fn query_video_frame_status(&self) -> VideoFrameStatus {
         self.ppu.query_frame_status()
+    }
+
+    pub fn notify_buttons_pressed(&mut self, buttons: Buttons) {
+        self.joypad
+            .notify_buttons_pressed(&mut self.ir_system, buttons);
+    }
+
+    pub fn notify_buttons_released(&mut self, buttons: Buttons) {
+        self.joypad.notify_buttons_released(buttons);
+    }
+
+    pub fn notify_buttons_state(&mut self, buttons: Buttons) {
+        self.joypad
+            .notify_buttons_state(&mut self.ir_system, buttons);
     }
 
     // The following methods have to sit on Board because they don't consume

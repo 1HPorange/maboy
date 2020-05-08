@@ -32,7 +32,13 @@ impl MemFrame {
 
 impl From<Color> for MemPixel {
     fn from(col: Color) -> Self {
-        MemPixel::from_grayscale(255 - 85 * col.into_raw())
+        // MemPixel::from_grayscale(255 - 85 * col.into_raw())
+        match col.into_val() {
+            ColorVal::C00 => MemPixel::new(239, 255, 222, 255),
+            ColorVal::C01 => MemPixel::new(173, 215, 148, 255),
+            ColorVal::C10 => MemPixel::new(82, 146, 115, 255),
+            ColorVal::C11 => MemPixel::new(24, 52, 66, 255),
+        }
     }
 }
 

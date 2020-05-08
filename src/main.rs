@@ -13,6 +13,18 @@ fn main() {
 
     let mut emu = Emulator::new(cartridge_mem);
 
+    // Initialize input system
+    let window_input = WindowInput::from_watched_keys(&[
+        KeyboardKey::J,
+        KeyboardKey::K,
+        KeyboardKey::B,
+        KeyboardKey::N,
+        KeyboardKey::W,
+        KeyboardKey::A,
+        KeyboardKey::S,
+        KeyboardKey::D,
+    ]);
+
     // Initialize Window
     let mut window_factory = WindowFactory::new();
     let game_window = window_factory
@@ -20,7 +32,10 @@ fn main() {
             "MaBoy Emulatin'",
             160 * 4,
             144 * 4,
-            |msg, w_param, l_param| MsgHandlerResult::RunDefaultMsgHandler,
+            |msg, w_param, l_param| {
+                window_input.update(msg, w_param);
+                MsgHandlerResult::RunDefaultMsgHandler
+            },
         )
         .expect("Could not create game window");
     game_window.show();
