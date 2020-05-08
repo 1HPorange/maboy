@@ -12,7 +12,7 @@ pub struct Window {
 }
 
 /// (msg, w_param, l_param)
-pub type MsgHandler = fn(u32, usize, isize) -> MsgHandlerResult;
+pub type MsgHandler = Box<Fn(u32, usize, isize) -> MsgHandlerResult>;
 
 pub enum MsgHandlerResult {
     RunDefaultMsgHandler,

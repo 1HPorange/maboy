@@ -58,8 +58,8 @@ impl JoyPad {
 
         self.active_buttons = match self.p1_reg & 0b_0011_0000 {
             0b_0000_0000 => ActiveButtonGroup::Both,
-            0b_0001_0000 => ActiveButtonGroup::Directional,
-            0b_0010_0000 => ActiveButtonGroup::General,
+            0b_0001_0000 => ActiveButtonGroup::General,
+            0b_0010_0000 => ActiveButtonGroup::Directional,
             0b_0011_0000 => ActiveButtonGroup::Neither,
             _ => unsafe { std::hint::unreachable_unchecked() },
         }
