@@ -2,6 +2,7 @@ use std::pin::Pin;
 pub struct InternalMem {
     pub(super) wram: &'static mut [u8],
     pub(super) hram: &'static mut [u8],
+    #[allow(dead_code)] // This thing is not dead, but Rust doesn't understand that
     backing: Pin<Box<[u8]>>,
 }
 

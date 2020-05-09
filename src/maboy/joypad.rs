@@ -18,14 +18,14 @@ enum ActiveButtonGroup {
 
 bitflags! {
     pub struct Buttons: u8 {
-        const Right = 0b_0000_0001;
-        const Left = 0b_0000_0010;
-        const Up = 0b_0000_0100;
-        const Down = 0b_0000_1000;
+        const RIGHT = 0b_0000_0001;
+        const LEFT = 0b_0000_0010;
+        const UP = 0b_0000_0100;
+        const DOWN = 0b_0000_1000;
         const A = 0b_0001_0000;
         const B = 0b_0010_0000;
-        const Select = 0b_0100_0000;
-        const Start = 0b_1000_0000;
+        const SELECT = 0b_0100_0000;
+        const START = 0b_1000_0000;
     }
 }
 

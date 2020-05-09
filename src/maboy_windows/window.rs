@@ -1,5 +1,5 @@
 use super::window_factory::WindowFactory;
-use std::marker::{PhantomData, PhantomPinned};
+use std::marker::PhantomPinned;
 use winapi::shared::minwindef::{LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::HWND;
 use winapi::um::winuser::{ShowWindow, SW_SHOW};
@@ -12,7 +12,7 @@ pub struct Window {
 }
 
 /// (msg, w_param, l_param)
-pub type MsgHandler = Box<Fn(u32, usize, isize) -> MsgHandlerResult>;
+pub type MsgHandler = Box<dyn Fn(u32, usize, isize) -> MsgHandlerResult>;
 
 pub enum MsgHandlerResult {
     RunDefaultMsgHandler,

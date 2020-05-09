@@ -1,41 +1,44 @@
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
+pub trait CartridgeDesc {
+    fn header(&self) -> &[u8];
 
-/// Methods that take a cartridge header (ROM bytes 0x100-0x14F inclusive) and
-/// extract information about it.
+    fn title(&self) -> String {
+        // Title is only null-terminated if less than 16 bytes,
+        // so we can't rely on that
+        let title_bytes = self.header()[0x34..]
+            .iter()
+            .copied()
+            .take_while(|b| *b != 0)
+            .take(16)
+            .collect::<Vec<_>>();
 
-fn title(header: &[u8]) -> String {
-    // Title is only null-terminated if less than 16 bytes,
-    // so we can't rely on that
-    let title_bytes = header[0x34..]
-        .iter()
-        .copied()
-        .take_while(|b| *b != 0)
-        .take(16)
-        .collect::<Vec<_>>();
-
-    String::from_utf8_lossy(&title_bytes).into_owned()
-}
-
-fn cartridge_type(header: &[u8]) -> Option<CartridgeType> {
-    CartridgeType::try_from(header[0x47]).ok()
-}
-
-fn rom_size(header: &[u8]) -> Option<RomSize> {
-    RomSize::try_from(header[0x48]).ok()
-}
-
-fn ram_size(header: &[u8]) -> Option<RamSize> {
-    RamSize::try_from(header[0x49]).ok()
-}
-
-fn has_valid_header(header: &[u8]) -> bool {
-    let mut checksum = 0u8;
-    for i in 0x34..=0x4C {
-        checksum = checksum.wrapping_sub(header[i]).wrapping_sub(1);
+        // ASCII can be interpreted as UTF8 (at least to a reasonable degree)
+        String::from_utf8_lossy(&title_bytes).into_owned()
     }
 
-    header[0x4D] == checksum
+    fn cartridge_type(&self) -> Option<CartridgeType> {
+        CartridgeType::try_from(self.header()[0x47]).ok()
+    }
+
+    fn rom_size(&self) -> Option<RomSize> {
+        RomSize::try_from(self.header()[0x48]).ok()
+    }
+
+    fn ram_size(&self) -> Option<RamSize> {
+        RamSize::try_from(self.header()[0x49]).ok()
+    }
+
+    fn has_valid_header(&self) -> bool {
+        let header = self.header();
+
+        let mut checksum = 0u8;
+        for i in 0x34..=0x4C {
+            checksum = checksum.wrapping_sub(header[i]).wrapping_sub(1);
+        }
+
+        header[0x4D] == checksum
+    }
 }
 
 #[allow(non_camel_case_types)]

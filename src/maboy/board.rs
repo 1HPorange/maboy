@@ -49,7 +49,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
                 unimplemented!("Unimplemented IO read: {:#06X}", addr)
             }
             IO(reg) => {
-                println!("Unimplemented IO register read: {:?}", reg);
+                log::warn!("Unimplemented IO register read: {:?}", reg);
                 0xff // TODO: FIX!
             }
             IE => self.ir_system.read_ie(),
@@ -64,7 +64,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
         use WriteAddr::*;
 
         match WriteAddr::from(addr) {
-            ROM(addr) => println!("Unimplemented MBC stuff"),
+            ROM(_addr) => log::warn!("Unimplemented MBC stuff"),
             Mem(mem_addr) => self.mem.write8(mem_addr, val),
             VideoMem(vid_mem_addr) => self.ppu.write_video_mem(vid_mem_addr, val),
             Unusable => (), // Writes to here are ignored by DMG systems
@@ -74,8 +74,8 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.write_reg(&mut self.ir_system, ppu_reg, val),
             IO(IOReg::BootRomDisable) => self.mem.write_ff50(val),
             IO(IOReg::IF) => self.ir_system.write_if(val),
-            IO(IOReg::Unimplemented(addr)) => println!("Unimplemented IO write: {:#06X}", addr),
-            IO(reg) => println!("Unimplemented IO write: {:?}", reg),
+            IO(IOReg::Unimplemented(addr)) => log::warn!("Unimplemented IO write: {:#06X}", addr),
+            IO(reg) => log::warn!("Unimplemented IO write: {:?}", reg),
             IE => self.ir_system.write_ie(val),
         }
 

@@ -19,8 +19,12 @@ const DOWN_BUTTON_KEY: KeyboardKey = KeyboardKey::S;
 const LEFT_BUTTON_KEY: KeyboardKey = KeyboardKey::A;
 
 fn main() {
+    env_logger::init();
+
     // Initialize Emulator
-    let cartridge = Cartridge::from_file("roms/oh.gb");
+    let cartridge =
+        Cartridge::from_file("roms/Dr. Mario (World).gb").expect("Could not open ROM file");
+
     let cartridge_mem = CartridgeMem::from(cartridge);
 
     let mut emu = Emulator::new(cartridge_mem);
@@ -104,12 +108,12 @@ fn main() {
                         match key {
                             A_BUTTON_KEY => acc.insert(Buttons::A),
                             B_BUTTON_KEY => acc.insert(Buttons::B),
-                            START_BUTTON_KEY => acc.insert(Buttons::Start),
-                            SELECT_BUTTON_KEY => acc.insert(Buttons::Select),
-                            UP_BUTTON_KEY => acc.insert(Buttons::Up),
-                            RIGHT_BUTTON_KEY => acc.insert(Buttons::Right),
-                            DOWN_BUTTON_KEY => acc.insert(Buttons::Down),
-                            LEFT_BUTTON_KEY => acc.insert(Buttons::Left),
+                            START_BUTTON_KEY => acc.insert(Buttons::START),
+                            SELECT_BUTTON_KEY => acc.insert(Buttons::SELECT),
+                            UP_BUTTON_KEY => acc.insert(Buttons::UP),
+                            RIGHT_BUTTON_KEY => acc.insert(Buttons::RIGHT),
+                            DOWN_BUTTON_KEY => acc.insert(Buttons::DOWN),
+                            LEFT_BUTTON_KEY => acc.insert(Buttons::LEFT),
                             _ => (),
                         }
                         acc

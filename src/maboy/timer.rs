@@ -21,10 +21,10 @@ const TAC_WRITE_MASK: u8 = 0b111;
 #[derive(Copy, Clone)]
 #[repr(u16)]
 enum TimaFrequency {
-    f00 = 0b10_0000_0000,
-    f01 = 0b00_0000_1000,
-    f10 = 0b00_0010_0000,
-    f11 = 0b00_1000_0000,
+    F00 = 0b10_0000_0000,
+    F01 = 0b00_0000_1000,
+    F10 = 0b00_0010_0000,
+    F11 = 0b00_1000_0000,
 }
 
 impl Timer {
@@ -34,7 +34,7 @@ impl Timer {
             tima_reg: 0,
             tma_reg: 0,
             tac_reg: !TAC_WRITE_MASK,
-            tima_freq: TimaFrequency::f00,
+            tima_freq: TimaFrequency::F00,
             tima_enabled: 0,
         }
     }
@@ -85,10 +85,10 @@ impl Timer {
         }
 
         self.tima_freq = match val & 0b11 {
-            0b00 => TimaFrequency::f00,
-            0b01 => TimaFrequency::f01,
-            0b10 => TimaFrequency::f10,
-            0b11 => TimaFrequency::f11,
+            0b00 => TimaFrequency::F00,
+            0b01 => TimaFrequency::F01,
+            0b10 => TimaFrequency::F10,
+            0b11 => TimaFrequency::F11,
             _ => unsafe { std::hint::unreachable_unchecked() },
         };
 

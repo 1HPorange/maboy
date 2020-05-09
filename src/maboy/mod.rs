@@ -14,6 +14,7 @@ use board::Board;
 use cpu::CPU;
 use memory::{cartridge_mem::CartridgeRam, internal_mem::InternalMem, Memory};
 
+pub use cartridge::cartridge_desc::{CartridgeDesc, CartridgeType, RamSize, RomSize};
 pub use cartridge::Cartridge;
 pub use joypad::Buttons;
 pub use memory::cartridge_mem::CartridgeMem;

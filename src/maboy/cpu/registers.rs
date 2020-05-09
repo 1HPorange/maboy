@@ -1,5 +1,4 @@
 use bitflags::*;
-use std::ops::{Index, IndexMut};
 
 #[repr(C)]
 pub union Registers {

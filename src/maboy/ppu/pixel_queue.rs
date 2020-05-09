@@ -6,7 +6,6 @@ use super::sprite::Sprite;
 use super::tile_data::{SpriteTileRow, TileData, TileRow};
 use super::tile_maps::{TileMaps, TileRowAddr};
 use super::Palette;
-use super::PPU;
 
 pub struct PixelQueue {
     quads: [PixelQuad; 40],

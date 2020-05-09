@@ -12,8 +12,6 @@ mod tile_maps;
 
 use crate::maboy::address::{PpuReg, VideoMemAddr};
 use crate::maboy::interrupt_system::{Interrupt, InterruptSystem};
-use lcdc::LCDC;
-use lcds::LCDS;
 use mem_frame::{MemFrame, MemPixel};
 use oam::OAM;
 use palette::Palette;
@@ -21,9 +19,6 @@ use pixel_queue::PixelQueue;
 use ppu_registers::PPURegisters;
 use tile_data::TileData;
 use tile_maps::TileMaps;
-
-const VRAM_LEN: usize = 0xA000 - 0x8000;
-const OAM_LEN: usize = 0xFEA0 - 0xFE00;
 
 // TODO: This whole file is kind of messy. Rethink the state machine approach.
 

@@ -23,9 +23,9 @@ impl From<Cartridge> for CartridgeMem<WithoutCartridgeRam> {
 pub struct WithoutCartridgeRam;
 
 impl CartridgeRam for WithoutCartridgeRam {
-    fn read8(&self, addr: u16) -> u8 {
+    fn read8(&self, _addr: u16) -> u8 {
         0xff
     }
 
-    fn write8(&self, addr: u16, val: u8) {}
+    fn write8(&self, _addr: u16, _val: u8) {}
 }

@@ -1,6 +1,5 @@
 use super::lcdc::{SpriteSize, LCDC};
 use super::sprite::Sprite;
-use super::tile_maps::TileRowAddr;
 use std::ops::{Index, IndexMut};
 
 pub struct OAM {
@@ -45,7 +44,7 @@ impl OAM {
                 ly >= *sprite_y && ly < sprite_y + 8
             })
             .take(10)
-            .map(move |(id, sprite_y)| {
+            .map(move |(id, _sprite_y)| {
                 Sprite::from_slice(
                     &self.mem[id as usize * SPRITE_WIDTH..id as usize * SPRITE_WIDTH + 4],
                 )

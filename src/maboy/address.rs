@@ -43,7 +43,7 @@ pub enum VideoMemAddr {
 
 // TODO: Think about moving Unusable, IO, and IE into this struct so
 // they can share code... is that necessary???
-pub enum HighAddr {}
+pub enum _HighAddr {}
 
 // 0xFF00 - 0xFF7F
 #[derive(Debug)]
