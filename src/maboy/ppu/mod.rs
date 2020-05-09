@@ -94,7 +94,6 @@ impl PPU {
             // OAM Search
             Mode::OAMSearch(1) => {
                 self.oam.rebuild();
-                self.tile_data.rebuild();
 
                 self.pixel_queue.push_scanline(
                     &self.reg,
@@ -105,6 +104,7 @@ impl PPU {
                 Mode::OAMSearch(2)
             }
             Mode::OAMSearch(20) => {
+                self.tile_data.rebuild();
                 self.change_mode_with_interrupts(ir_system, Mode::PixelTransfer(1))
             }
             Mode::OAMSearch(n) => Mode::OAMSearch(n + 1),

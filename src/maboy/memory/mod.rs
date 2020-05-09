@@ -33,7 +33,7 @@ impl<CRAM: CartridgeRam> Memory<CRAM> {
             ReadOnly(CROMn(addr)) => self.map.crom_n[addr as usize],
             ReadWrite(CRAM(addr)) => self.cartridge.cram.read8(addr),
             ReadWrite(WRAM(addr)) => self.internal.wram[addr as usize],
-            ReadWrite(ECHO(addr)) => unimplemented!("ECHO read not implemented"),
+            ReadWrite(ECHO(addr)) => self.internal.wram[addr as usize],
             ReadWrite(HRAM(addr)) => self.internal.hram[addr as usize],
         }
     }
@@ -44,7 +44,7 @@ impl<CRAM: CartridgeRam> Memory<CRAM> {
         match addr {
             CRAM(addr) => self.cartridge.cram.write8(addr, val),
             WRAM(addr) => self.internal.wram[addr as usize] = val,
-            ECHO(addr) => unimplemented!("ECHO write not implemented"),
+            ECHO(addr) => self.internal.wram[addr as usize] = val,
             HRAM(addr) => self.internal.hram[addr as usize] = val,
         }
     }
