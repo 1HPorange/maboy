@@ -65,7 +65,7 @@ impl PixelQueue {
 
         if ppu_reg.lcdc.sprites_enabled() {
             for sprite in oam.sprites_in_line(ppu_reg.ly) {
-                self.draw_sprite(tile_data, ppu_reg, sprite, ppu_reg.ly - sprite.y);
+                self.draw_sprite(tile_data, ppu_reg, sprite, (ppu_reg.ly + 16) - sprite.y);
             }
         }
 
@@ -170,7 +170,7 @@ impl PixelQueue {
         // If the sprite goes over the left edge of the screen, we disacrd some pixels
         row.discard_leftmost(8u8.saturating_sub(sprite.x));
 
-        for pidx in sprite.x.max(8)..sprite.x + 8 {
+        for pidx in sprite.x.max(8) - 8..sprite.x.min(143) {
             let col = row.pop_leftmost();
             self.draw_sprite_pix(sprite, ppu_reg.obp0, ppu_reg.obp1, pidx, col, pixel_src);
         }

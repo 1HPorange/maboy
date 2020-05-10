@@ -38,10 +38,10 @@ impl OAM {
         self.visible_sorted
             .iter()
             .copied()
-            .map(move |id| (id, self.mem[id as usize * SPRITE_WIDTH].wrapping_add(16)))
+            .map(move |id| (id, self.mem[id as usize * SPRITE_WIDTH] as i16 - 16))
             .filter(move |(_, sprite_y)| {
                 // TODO: Support large sprites
-                ly >= *sprite_y && ly < sprite_y + 8
+                ly as i16 >= *sprite_y && (ly as i16) < *sprite_y + 8
             })
             .take(10)
             .map(move |(id, _sprite_y)| {
@@ -61,19 +61,19 @@ impl OAM {
 
         for sprite_id in 0..40 {
             let sprite_y = self.mem[sprite_id as usize * SPRITE_WIDTH];
+            let sprite_x = self.mem[sprite_id as usize * SPRITE_WIDTH + 1];
 
             // TODO: Support large sprites
-            if sprite_y > 8 && sprite_y < 160 {
+            if sprite_y > 8 && sprite_y < 160 && sprite_x < 166 {
                 self.visible_sorted.push(sprite_id);
             }
-
-            // We take this ref to get around a borrowing conflict on self
-            let mem = &self.mem;
-            self.visible_sorted
-                .sort_unstable_by_key(|id| mem[*id as usize * SPRITE_WIDTH + 1]);
-
-            self.is_dirty = false;
         }
+
+        // We take this ref to get around a borrowing conflict on self
+        let mem = &self.mem;
+        self.visible_sorted
+            .sort_unstable_by_key(|id| mem[*id as usize * SPRITE_WIDTH + 1]);
+        self.is_dirty = false;
     }
 }
 

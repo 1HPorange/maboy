@@ -2,14 +2,13 @@ use crate::maboy::address::{ReadAddr, VideoMemAddr};
 use crate::maboy::board::Board;
 use crate::maboy::memory::cartridge_mem::CartridgeRam;
 
+// TODO: Disable sprite rendering while DMAing
+
 pub struct OamDma {
     src_addr: u16,
     oam_dst_idx: u8,
     read_buf: u8,
 }
-
-#[must_use]
-pub struct OamReadCmd<'a>(u16, &'a mut OamDma);
 
 impl OamDma {
     pub fn new() -> OamDma {

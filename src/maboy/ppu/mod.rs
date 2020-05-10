@@ -46,7 +46,7 @@ pub enum VideoFrameStatus<'a> {
     Ready(&'a [MemPixel]),
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub(super) enum Mode {
     LCDOff(u8),
 
@@ -89,6 +89,7 @@ impl PPU {
             // OAM Search
             Mode::OAMSearch(1) => {
                 self.oam.rebuild();
+                self.tile_data.rebuild();
 
                 self.pixel_queue.push_scanline(
                     &self.reg,
@@ -181,6 +182,7 @@ impl PPU {
     pub fn write_video_mem(&mut self, addr: VideoMemAddr, val: u8) {
         match addr {
             VideoMemAddr::TileData(addr) if self.vram_accessible() => self.tile_data[addr] = val,
+
             VideoMemAddr::TileMaps(addr) if self.vram_accessible() => {
                 self.tile_maps.mem[addr as usize] = val
             }

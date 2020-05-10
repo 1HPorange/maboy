@@ -12,7 +12,8 @@ impl SerialPort {
         match reg {
             SerialReg::SB => self.sb_reg = val,
             SerialReg::SC if val == 0x81 => print!("{}", self.sb_reg as char),
-            _ => log::warn!("Unimplemented write to SC (Serial Port Control) register"),
+            // This is logged as info because games tend to spam it massively
+            _ => log::info!("Unimplemented write to SC (Serial Port Control) register"),
         }
     }
 
