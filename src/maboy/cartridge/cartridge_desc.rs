@@ -6,15 +6,13 @@ pub trait CartridgeDesc {
     fn title(&self) -> String {
         // Title is only null-terminated if less than 16 bytes,
         // so we can't rely on that
-        let title_bytes = self.header()[0x34..]
+        self.header()[0x34..]
             .iter()
             .copied()
             .take_while(|b| *b != 0)
             .take(16)
-            .collect::<Vec<_>>();
-
-        // ASCII can be interpreted as UTF8 (at least to a reasonable degree)
-        String::from_utf8_lossy(&title_bytes).into_owned()
+            .map(|b| char::from(b))
+            .collect::<String>()
     }
 
     fn cartridge_type(&self) -> Option<CartridgeType> {

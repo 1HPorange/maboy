@@ -1,3 +1,5 @@
+mod oam_dma;
+
 use super::address::{IOReg, ReadAddr, WriteAddr};
 use super::interrupt_system::{Interrupt, InterruptSystem};
 use super::joypad::{Buttons, JoyPad};
@@ -5,12 +7,14 @@ use super::memory::{cartridge_mem::CartridgeRam, Memory};
 use super::ppu::{VideoFrameStatus, PPU};
 use super::serial_port::SerialPort;
 use super::timer::Timer;
+use oam_dma::OamDma;
 
 pub struct Board<CRAM> {
     mem: Memory<CRAM>,
     ppu: PPU,
     ir_system: InterruptSystem,
     pub joypad: JoyPad,
+    oam_dma: OamDma,
     timer: Timer,
     serial_port: SerialPort,
 }
@@ -22,6 +26,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             ppu: PPU::new(),
             ir_system: InterruptSystem::new(),
             joypad: JoyPad::new(),
+            oam_dma: OamDma::new(),
             timer: Timer::new(),
             serial_port: SerialPort::new(),
         }
@@ -30,12 +35,16 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
     pub fn advance_mcycle(&mut self) {
         self.timer.advance_mcycle(&mut self.ir_system);
         self.ppu.advance_mcycle(&mut self.ir_system);
+        OamDma::advance_mcycle(self);
     }
 
-    pub fn read8(&mut self, addr: u16) -> u8 {
+    /// Necessary for implementing OAM DMA. Doesn't consume any cycles.
+    /// This method should never be public to avoid other components
+    /// accidentally reading memory "for free".
+    fn read8_instant(&self, addr: ReadAddr) -> u8 {
         use ReadAddr::*;
 
-        let result = match ReadAddr::from(addr) {
+        match addr {
             Mem(mem_addr) => self.mem.read8(mem_addr),
             VideoMem(vid_mem_addr) => self.ppu.read_video_mem(vid_mem_addr),
             // TODO: Research if read of Unusable always return 0 even in different PPU modes
@@ -53,17 +62,33 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
                 0xff // TODO: FIX!
             }
             IE => self.ir_system.read_ie(),
-        };
+        }
+    }
 
+    pub fn read8(&mut self, addr: u16) -> u8 {
+        let addr = ReadAddr::from(addr);
+
+        // Guard memory during DMA
+        if self.oam_dma.is_active() && (!addr.is_hram_read()) {
+            return 0xff;
+        }
+
+        let result = self.read8_instant(addr);
         self.advance_mcycle();
-
         result
     }
 
     pub fn write8(&mut self, addr: u16, val: u8) {
         use WriteAddr::*;
 
-        match WriteAddr::from(addr) {
+        let addr = WriteAddr::from(addr);
+
+        // Guard memory during DMA
+        if self.oam_dma.is_active() && (!addr.is_hram_write()) {
+            return;
+        }
+
+        match addr {
             ROM(_addr) => log::warn!("Unimplemented MBC stuff"),
             Mem(mem_addr) => self.mem.write8(mem_addr, val),
             VideoMem(vid_mem_addr) => self.ppu.write_video_mem(vid_mem_addr, val),
@@ -72,6 +97,7 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
             IO(IOReg::Serial(serial_reg)) => self.serial_port.write_reg(serial_reg, val),
             IO(IOReg::Timer(timer_reg)) => self.timer.write_reg(timer_reg, val),
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.write_reg(&mut self.ir_system, ppu_reg, val),
+            IO(IOReg::OamDma) => self.oam_dma.write_ff46(val),
             IO(IOReg::BootRomDisable) => self.mem.write_ff50(val),
             IO(IOReg::IF) => self.ir_system.write_if(val),
             IO(IOReg::Unimplemented(addr)) => log::warn!("Unimplemented IO write: {:#06X}", addr),

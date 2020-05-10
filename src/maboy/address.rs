@@ -54,6 +54,7 @@ pub enum IOReg {
     IF, // 0xFF0F
     Apu(ApuReg),
     Ppu(PpuReg),
+    OamDma,             // 0xFF46
     BootRomDisable,     // 0xFF50
     Unimplemented(u16), // TODO: Get rid of this variant
 }
@@ -83,6 +84,7 @@ impl TryFrom<u16> for IOReg {
             0xFF43 => Ppu(PpuReg::SCX),
             0xFF44 => Ppu(PpuReg::LY),
             0xFF45 => Ppu(PpuReg::LYC),
+            0xFF46 => OamDma,
             0xFF47 => Ppu(PpuReg::BGP),
             0xFF48 => Ppu(PpuReg::OBP0),
             0xFF49 => Ppu(PpuReg::OBP1),
@@ -134,6 +136,21 @@ pub enum TimerReg {
 }
 
 // TODO: Get rid of the duplication below, if possible without losing performance
+
+impl ReadAddr {
+    pub fn is_hram_read(&self) -> bool {
+        matches!(
+            self,
+            ReadAddr::Mem(MemAddr::ReadWrite(ReadWriteMemAddr::HRAM(_)))
+        )
+    }
+}
+
+impl WriteAddr {
+    pub fn is_hram_write(&self) -> bool {
+        matches!(self, WriteAddr::Mem(ReadWriteMemAddr::HRAM(_)))
+    }
+}
 
 impl From<u16> for ReadAddr {
     fn from(addr: u16) -> Self {
