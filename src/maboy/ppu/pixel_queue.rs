@@ -139,7 +139,7 @@ impl PixelQueue {
         let mut row = tile_data.get_row(row_addr);
 
         row.discard_leftmost(bg_x % 8);
-        bgp.apply(row.pop_leftmost().into_raw())
+        bgp.apply(row.pop_leftmost())
     }
 
     fn draw_sprite(
@@ -248,9 +248,9 @@ impl PixelQueue {
             }
 
             let col = if sprite.flags.uses_alternative_pallette() {
-                obp1.apply(col.into_raw())
+                obp1.apply(col)
             } else {
-                obp0.apply(col.into_raw())
+                obp0.apply(col)
             };
 
             quad.pixel_col |= col.into_raw() << (quad_subidx * 2);
@@ -274,7 +274,7 @@ impl PixelQueue {
             unimplemented!("Sprite priority 1 occlusion is not yet implemented")
         } else {
             // The pixel has col and src 0b00, so we draw over it
-            let col = bgp.apply(col.into_raw());
+            let col = bgp.apply(col);
             quad.pixel_col |= col.into_raw() << (quad_subidx * 2);
             quad.pixel_src |= 0b01 << (quad_subidx * 2);
         }
