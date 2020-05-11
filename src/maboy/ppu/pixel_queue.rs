@@ -182,7 +182,7 @@ impl PixelQueue {
         // If the sprite goes over the left edge of the screen, we disacrd some pixels
         row.discard_leftmost(8u8.saturating_sub(sprite.x));
 
-        for pidx in sprite.x.max(8) - 8..sprite.x.min(143) {
+        for pidx in sprite.x.max(8) - 8..sprite.x.min(159) {
             let col = row.pop_leftmost();
             self.draw_sprite_pix(sprite, ppu_reg.obp0, ppu_reg.obp1, pidx, col, pixel_src);
         }

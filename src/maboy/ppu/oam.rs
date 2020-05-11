@@ -64,7 +64,7 @@ impl OAM {
             let sprite_x = self.mem[sprite_id as usize * SPRITE_WIDTH + 1];
 
             // TODO: Support large sprites
-            if sprite_y > 8 && sprite_y < 160 && sprite_x < 166 {
+            if sprite_y > 8 && sprite_y < 160 && sprite_x < 168 {
                 self.visible_sorted.push(sprite_id);
             }
         }
