@@ -1,4 +1,4 @@
-use super::color::Color;
+use super::color::{Color, ColorVal};
 use super::mem_frame::MemPixel;
 use super::oam::OAM;
 use super::ppu_registers::PPURegisters;
@@ -25,9 +25,9 @@ struct PixelQuad {
 
     /// In the same order as `pixel_types`, each two bits describe a pixel source:
     /// 0b00 - Background (needs to be calculated later)
-    /// 0b01 - Window - This pixel is final and paletted
+    /// 0b01 - Window or blended Sprite [Priority 1] - This pixel is final and paletted
     /// 0b10 - Sprite with priority 1 over BG - Paletted, even though it might be overwritten
-    /// 0b11 - Sprite Priority 0 (over BG or Window) - This pixel is final and paletted
+    /// 0b11 - Sprite [Priority 0] (over BG or Window) - This pixel is final and paletted
     /// Note that in this representation, the lower bit indicates if a pixel is final.
     pixel_src: u8,
 }
@@ -118,7 +118,19 @@ impl PixelQueue {
                     bg_y,
                     ppu_reg.bgp,
                 )),
-                0b10 => unimplemented!("Sprite priority 1 occlusion is not yet implemented"),
+                0b10 => {
+                    let bg_col = self.fetch_bg_pix(
+                        tile_data,
+                        tile_maps,
+                        pidx.wrapping_add(ppu_reg.scx),
+                        bg_y,
+                        ppu_reg.bgp,
+                    );
+
+                    let sprite_col = Color::from_u8_lsb(quad.pixel_col);
+
+                    MemPixel::from(blend_sprite_col(sprite_col, bg_col))
+                }
                 _ => MemPixel::from(Color::from_u8_lsb(quad.pixel_col)),
             };
 
@@ -263,20 +275,39 @@ impl PixelQueue {
         let quad_subidx = pidx % 4;
         let quad = &mut self.quads[quad_idx as usize];
 
-        let old_src = quad.pixel_src >> (quad_subidx * 2);
+        let quad_shift = quad_subidx * 2;
+
+        let old_src = quad.pixel_src >> quad_shift;
 
         if old_src & 1 == 1 {
             return; // The pixel is already final, we are done here
         }
 
-        if old_src & 0b10 == 0b10 {
+        let col = if old_src & 0b10 == 0b10 {
             // This pixel is a partially occluded sprite... Jesus Christ!
-            unimplemented!("Sprite priority 1 occlusion is not yet implemented")
+
+            // Clear pixel color and pixel source
+            quad.pixel_col &= (!0b11u8).rotate_left(quad_shift as u32);
+            quad.pixel_src &= (!0b11u8).rotate_left(quad_shift as u32);
+
+            // Blend sprite and BG color
+            let sprite_col = Color::from_u8_lsb(quad.pixel_col >> quad_shift);
+            blend_sprite_col(sprite_col, col)
         } else {
             // The pixel has col and src 0b00, so we draw over it
-            let col = bgp.apply(col);
-            quad.pixel_col |= col.into_raw() << (quad_subidx * 2);
-            quad.pixel_src |= 0b01 << (quad_subidx * 2);
-        }
+            bgp.apply(col)
+        };
+
+        quad.pixel_col |= col.into_raw() << quad_shift;
+        quad.pixel_src |= 0b01 << quad_shift;
+    }
+}
+
+/// For sprites with OBJ-to-BG priority 1, this function calculates
+/// the resulting color of a blend with a BG/WND color
+fn blend_sprite_col(sprite_col: Color, bg_col: Color) -> Color {
+    match bg_col.into_val() {
+        ColorVal::C00 => sprite_col,
+        _ => bg_col,
     }
 }

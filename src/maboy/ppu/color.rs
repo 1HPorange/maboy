@@ -1,4 +1,5 @@
 /// A color value guaranteed to be in the range 0..4
+#[derive(Copy, Clone)]
 pub struct Color(u8);
 
 #[repr(u8)]
