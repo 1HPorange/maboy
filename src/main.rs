@@ -41,6 +41,10 @@ fn main() {
         LEFT_BUTTON_KEY,
     ])));
 
+    // Initialize throttle clock
+    let mut os_timing = OsTiming::new(59.7)
+        .expect("Could not create OS timer. This timer is used to throttle the game.");
+
     // Initialize Window
     let mut window_factory = WindowFactory::new();
 
@@ -79,6 +83,8 @@ fn main() {
     // all windows that were created on this thread.
     let mut last_window_msg_poll = Instant::now();
 
+    os_timing.notify_frame_start().unwrap();
+
     loop {
         emu.emulate_step();
 
@@ -86,11 +92,19 @@ fn main() {
             VideoFrameStatus::NotReady => (),
             VideoFrameStatus::Ready(frame_data) => {
                 frame.copy_from_slice(frame_data);
+
+                os_timing.wait_frame_remaining().unwrap();
+                os_timing.notify_frame_start().unwrap();
+
                 frame.present(false).expect("Could not present frame");
                 frame = gfx_window.next_frame();
             }
             VideoFrameStatus::LcdTurnedOff => {
                 frame.clear(&[0.0, 0.0, 0.0, 1.0]);
+
+                os_timing.wait_frame_remaining().unwrap();
+                os_timing.notify_frame_start().unwrap();
+
                 frame.present(false).expect("Could not present frame");
                 frame = gfx_window.next_frame();
             }
