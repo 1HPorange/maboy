@@ -21,9 +21,14 @@ const LEFT_BUTTON_KEY: KeyboardKey = KeyboardKey::A;
 fn main() {
     env_logger::init();
 
+    // Parse argument as path to ROM
+    let rom_path = std::env::args()
+        .skip(1)
+        .next()
+        .expect("Please provide the path to a GameBoy ROM (.gb) as a command-line argument.");
+
     // Parse Cartridge
-    let cartridge =
-        CartridgeVariant::from_file("roms/Dr. Mario (World).gb").expect("Could not open ROM file");
+    let cartridge = CartridgeVariant::from_file(rom_path).expect("Could not open ROM file");
 
     match cartridge {
         CartridgeVariant::Unbanked(c) => run_emulation(c),
