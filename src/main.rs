@@ -21,13 +21,18 @@ const LEFT_BUTTON_KEY: KeyboardKey = KeyboardKey::A;
 fn main() {
     env_logger::init();
 
-    // Initialize Emulator
+    // Parse Cartridge
     let cartridge =
-        Cartridge::from_file("roms/Dr. Mario (World).gb").expect("Could not open ROM file");
+        CartridgeVariant::from_file("roms/Dr. Mario (World).gb").expect("Could not open ROM file");
 
-    let cartridge_mem = CartridgeMem::from(cartridge);
+    match cartridge {
+        CartridgeVariant::Unbanked(c) => run_emulation(c),
+        _ => panic!("Unsupported cartridge format"),
+    }
+}
 
-    let mut emu = Emulator::new(cartridge_mem);
+fn run_emulation<C: CartridgeMem>(cartridge: C) {
+    let mut emu = Emulator::new(cartridge);
 
     // Initialize input system
     let window_input = Rc::new(RefCell::new(WindowInput::from_watched_keys(&[

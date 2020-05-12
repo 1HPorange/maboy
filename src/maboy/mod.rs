@@ -12,22 +12,19 @@ mod util;
 
 use board::Board;
 use cpu::CPU;
-use memory::{cartridge_mem::CartridgeRam, internal_mem::InternalMem, Memory};
+use memory::{InternalMem, Memory};
 
-pub use cartridge::cartridge_desc::{CartridgeDesc, CartridgeType, RamSize, RomSize};
-pub use cartridge::Cartridge;
+pub use cartridge::{Cartridge, CartridgeMem, CartridgeVariant};
 pub use joypad::Buttons;
-pub use memory::cartridge_mem::CartridgeMem;
-pub use ppu::mem_frame::MemPixel;
-pub use ppu::VideoFrameStatus;
+pub use ppu::{MemPixel, VideoFrameStatus};
 
-pub struct Emulator<CRAM: CartridgeRam> {
+pub struct Emulator<C: CartridgeMem> {
     cpu: CPU,
-    board: Board<CRAM>,
+    board: Board<C>,
 }
 
-impl<CRAM: CartridgeRam> Emulator<CRAM> {
-    pub fn new(cartridge_mem: CartridgeMem<CRAM>) -> Emulator<CRAM> {
+impl<C: CartridgeMem> Emulator<C> {
+    pub fn new(cartridge_mem: C) -> Emulator<C> {
         let mem = Memory::new(InternalMem::new(), cartridge_mem);
 
         Emulator {

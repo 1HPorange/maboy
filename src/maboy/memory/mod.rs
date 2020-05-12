@@ -1,48 +1,45 @@
-pub mod cartridge_mem;
-pub mod internal_mem; // TODO: Think about not exposing this
-mod memory_map;
+mod internal_mem;
 
-use crate::maboy::address::{MemAddr, ReadOnlyMemAddr, ReadWriteMemAddr};
-use cartridge_mem::{CartridgeMem, CartridgeRam};
-use internal_mem::InternalMem;
-use memory_map::MemoryMap;
+use super::cartridge::CartridgeMem;
+use crate::maboy::address::{CRomAddr, MemAddr};
 
-pub struct Memory<CRAM> {
-    map: MemoryMap,
+pub use internal_mem::InternalMem;
+
+pub struct Memory<C> {
     internal: InternalMem,
-    cartridge: CartridgeMem<CRAM>,
+    cartridge: C,
+    boot_rom_mapped: bool,
 }
 
-impl<CRAM: CartridgeRam> Memory<CRAM> {
-    pub fn new(internal_mem: InternalMem, cartridge_mem: CartridgeMem<CRAM>) -> Memory<CRAM> {
+impl<C: CartridgeMem> Memory<C> {
+    pub fn new(internal_mem: InternalMem, cartridge_mem: C) -> Memory<C> {
         Memory {
-            map: MemoryMap::new(&cartridge_mem),
             internal: internal_mem,
             cartridge: cartridge_mem,
+            boot_rom_mapped: true,
         }
     }
 
     pub fn read8(&self, addr: MemAddr) -> u8 {
+        use CRomAddr::*;
         use MemAddr::*;
-        use ReadOnlyMemAddr::*;
-        use ReadWriteMemAddr::*;
 
         match addr {
-            ReadOnly(CROM0lo(addr)) => self.map.crom_0_lo[addr as usize],
-            ReadOnly(CROM0hi(addr)) => self.map.crom_0_hi[addr as usize],
-            ReadOnly(CROMn(addr)) => self.map.crom_n[addr as usize],
-            ReadWrite(CRAM(addr)) => self.cartridge.cram.read8(addr),
-            ReadWrite(WRAM(addr)) => self.internal.wram[addr as usize],
-            ReadWrite(ECHO(addr)) => self.internal.wram[addr as usize],
-            ReadWrite(HRAM(addr)) => self.internal.hram[addr as usize],
+            CROM(CROM0(addr)) if self.boot_rom_mapped && addr < 0x100 => BOOT_ROM[addr as usize],
+            CROM(addr) => self.cartridge.read_rom(addr),
+            CRAM(addr) => self.cartridge.read_cram(addr),
+            WRAM(addr) => self.internal.wram[addr as usize],
+            ECHO(addr) => self.internal.wram[addr as usize],
+            HRAM(addr) => self.internal.hram[addr as usize],
         }
     }
 
-    pub fn write8(&mut self, addr: ReadWriteMemAddr, val: u8) {
-        use ReadWriteMemAddr::*;
+    pub fn write8(&mut self, addr: MemAddr, val: u8) {
+        use MemAddr::*;
 
         match addr {
-            CRAM(addr) => self.cartridge.cram.write8(addr, val),
+            CROM(addr) => self.cartridge.write_rom(addr, val),
+            CRAM(addr) => self.cartridge.write_cram(addr, val),
             WRAM(addr) => self.internal.wram[addr as usize] = val,
             ECHO(addr) => self.internal.wram[addr as usize] = val,
             HRAM(addr) => self.internal.hram[addr as usize] = val,
@@ -50,17 +47,15 @@ impl<CRAM: CartridgeRam> Memory<CRAM> {
     }
 
     pub fn write_ff50(&mut self, val: u8) {
-        use std::mem::transmute as forget_lifetime;
-
         if val == 1 {
-            self.map.crom_0_lo = unsafe { forget_lifetime(&mut self.cartridge.rom[..0x100]) };
+            self.boot_rom_mapped = false;
         } else {
             unimplemented!("Don't know what happens here")
         }
     }
 }
 
-const BIOS: [u8; 256] = [
+const BOOT_ROM: [u8; 256] = [
     0x31, 0xFE, 0xFF, 0xAF, 0x21, 0xFF, 0x9F, 0x32, 0xCB, 0x7C, 0x20, 0xFB, 0x21, 0x26, 0xFF, 0x0E,
     0x11, 0x3E, 0x80, 0x32, 0xE2, 0x0C, 0x3E, 0xF3, 0xE2, 0x32, 0x3E, 0x77, 0x77, 0x3E, 0xFC, 0xE0,
     0x47, 0x11, 0x04, 0x01, 0x21, 0x10, 0x80, 0x1A, 0xCD, 0x95, 0x00, 0xCD, 0x96, 0x00, 0x13, 0x7B,

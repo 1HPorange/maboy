@@ -1,16 +1,17 @@
 mod oam_dma;
 
-use super::address::{IOReg, ReadAddr, WriteAddr};
+use super::address::{Addr, IOReg};
+use super::cartridge::CartridgeMem;
 use super::interrupt_system::{Interrupt, InterruptSystem};
 use super::joypad::{Buttons, JoyPad};
-use super::memory::{cartridge_mem::CartridgeRam, Memory};
+use super::memory::Memory;
 use super::ppu::{VideoFrameStatus, PPU};
 use super::serial_port::SerialPort;
 use super::timer::Timer;
 use oam_dma::OamDma;
 
-pub struct Board<CRAM> {
-    mem: Memory<CRAM>,
+pub struct Board<C> {
+    mem: Memory<C>,
     ppu: PPU,
     ir_system: InterruptSystem,
     pub joypad: JoyPad,
@@ -19,8 +20,8 @@ pub struct Board<CRAM> {
     serial_port: SerialPort,
 }
 
-impl<CRAM: CartridgeRam> Board<CRAM> {
-    pub fn new(mem: Memory<CRAM>) -> Board<CRAM> {
+impl<C: CartridgeMem> Board<C> {
+    pub fn new(mem: Memory<C>) -> Board<C> {
         Board {
             mem,
             ppu: PPU::new(),
@@ -41,8 +42,8 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
     /// Necessary for implementing OAM DMA. Doesn't consume any cycles.
     /// This method should never be public to avoid other components
     /// accidentally reading memory "for free".
-    fn read8_instant(&self, addr: ReadAddr) -> u8 {
-        use ReadAddr::*;
+    fn read8_instant(&self, addr: Addr) -> u8 {
+        use Addr::*;
 
         match addr {
             Mem(mem_addr) => self.mem.read8(mem_addr),
@@ -66,10 +67,10 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
     }
 
     pub fn read8(&mut self, addr: u16) -> u8 {
-        let addr = ReadAddr::from(addr);
+        let addr = Addr::from(addr);
 
         // Guard memory during DMA
-        if self.oam_dma.is_active() && (!addr.is_hram_read()) {
+        if self.oam_dma.is_active() && (!addr.is_in_hram()) {
             return 0xff;
         }
 
@@ -79,17 +80,16 @@ impl<CRAM: CartridgeRam> Board<CRAM> {
     }
 
     pub fn write8(&mut self, addr: u16, val: u8) {
-        use WriteAddr::*;
+        use Addr::*;
 
-        let addr = WriteAddr::from(addr);
+        let addr = Addr::from(addr);
 
         // Guard memory during DMA
-        if self.oam_dma.is_active() && (!addr.is_hram_write()) {
+        if self.oam_dma.is_active() && (!addr.is_in_hram()) {
             return;
         }
 
         match addr {
-            ROM(_addr) => log::warn!("Unimplemented MBC stuff"),
             Mem(mem_addr) => self.mem.write8(mem_addr, val),
             VideoMem(vid_mem_addr) => self.ppu.write_video_mem(vid_mem_addr, val),
             Unusable => (), // Writes to here are ignored by DMG systems

@@ -4,8 +4,8 @@ mod operands;
 mod registers;
 
 use super::board::Board;
+use super::cartridge::CartridgeMem;
 use super::interrupt_system::Interrupt;
-use super::memory::cartridge_mem::CartridgeRam;
 use execute::*;
 use instruction::{ByteInstr, CBByteInstr};
 use operands::{HighRamOperand, HlOperand, Imm8, ImmAddr};
@@ -58,7 +58,7 @@ impl CPU {
         }
     }
 
-    pub fn step_instr<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) {
+    pub fn step_instr<C: CartridgeMem>(&mut self, board: &mut Board<C>) {
         match board.query_interrupt_request_instant() {
             Some(interrupt) if self.ime => self.jmp_to_interrupt_handler(board, interrupt),
             // Interrupt flags are ONLY cleared if we take the jump, so we don't
@@ -79,21 +79,21 @@ impl CPU {
         }
     }
 
-    fn read8i<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) -> u8 {
+    fn read8i<C: CartridgeMem>(&mut self, board: &mut Board<C>) -> u8 {
         let result = board.read8(self.reg.r16(R16::PC));
         *self.reg.r16_mut(R16::PC) = self.reg.r16(R16::PC).wrapping_add(1);
         result
     }
 
-    fn read16i<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) -> u16 {
+    fn read16i<C: CartridgeMem>(&mut self, board: &mut Board<C>) -> u16 {
         let result = board.read16(self.reg.r16(R16::PC));
         *self.reg.r16_mut(R16::PC) = self.reg.r16(R16::PC).wrapping_add(2);
         result
     }
 
-    fn jmp_to_interrupt_handler<CRAM: CartridgeRam>(
+    fn jmp_to_interrupt_handler<C: CartridgeMem>(
         &mut self,
-        board: &mut Board<CRAM>,
+        board: &mut Board<C>,
         interrupt: Interrupt,
     ) {
         // TODO: Add additional 4 clock wait if waking from HALT (and STOP???)
@@ -130,15 +130,15 @@ impl CPU {
         self.ime = ime;
     }
 
-    fn prefetch<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) -> ByteInstr {
+    fn prefetch<C: CartridgeMem>(&mut self, board: &mut Board<C>) -> ByteInstr {
         unsafe { std::mem::transmute(self.read8i(board)) }
     }
 
-    fn fetch_cb<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) -> CBByteInstr {
+    fn fetch_cb<C: CartridgeMem>(&mut self, board: &mut Board<C>) -> CBByteInstr {
         unsafe { std::mem::transmute(self.read8i(board)) }
     }
 
-    fn execute<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>, instr: ByteInstr) {
+    fn execute<C: CartridgeMem>(&mut self, board: &mut Board<C>, instr: ByteInstr) {
         use ByteInstr::*;
         use HlOperand::*;
         use R16::*;
@@ -404,7 +404,7 @@ impl CPU {
         }
     }
 
-    fn fetch_execute_cb<CRAM: CartridgeRam>(&mut self, board: &mut Board<CRAM>) {
+    fn fetch_execute_cb<C: CartridgeMem>(&mut self, board: &mut Board<C>) {
         use CBByteInstr::*;
         use R16::HL;
         use R8::*;

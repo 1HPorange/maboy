@@ -1,6 +1,6 @@
-use crate::maboy::address::{ReadAddr, VideoMemAddr};
+use crate::maboy::address::{Addr, VideoMemAddr};
 use crate::maboy::board::Board;
-use crate::maboy::memory::cartridge_mem::CartridgeRam;
+use crate::maboy::cartridge::CartridgeMem;
 
 // TODO: Disable sprite rendering while DMAing
 
@@ -41,7 +41,7 @@ impl OamDma {
     /// design this (like moving this OamDma onto `Emulator`), but then we would have uglier code
     /// in a lot more places. I think this solution is the lesser evil.
 
-    pub fn advance_mcycle<CRAM: CartridgeRam>(board: &mut Board<CRAM>) {
+    pub fn advance_mcycle<C: CartridgeMem>(board: &mut Board<C>) {
         // TODO: Don't progress when CPU is in halt or stop
         if board.oam_dma.is_active() {
             // In the very first cycle of OAM DMA, we just fill the read buffer,
@@ -58,7 +58,7 @@ impl OamDma {
             }
 
             // Read next byte (we read one too much at the very end, but noone cares ;)
-            board.oam_dma.read_buf = board.read8_instant(ReadAddr::from(board.oam_dma.src_addr));
+            board.oam_dma.read_buf = board.read8_instant(Addr::from(board.oam_dma.src_addr));
             board.oam_dma.src_addr += 1;
         }
     }

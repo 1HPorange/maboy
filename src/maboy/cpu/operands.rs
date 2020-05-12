@@ -1,7 +1,7 @@
 use super::registers::{R16, R8};
 use super::CPU;
 use crate::maboy::board::Board;
-use crate::maboy::memory::cartridge_mem::CartridgeRam;
+use crate::maboy::cartridge::CartridgeMem;
 
 /// The HL register offers optional "free" INC/DEC on HL after (HL) is resolved.
 /// By providing one of the enum variants as `Operand`, we can automate this.
@@ -14,18 +14,18 @@ pub enum HlOperand {
 }
 
 pub trait Src8 {
-    fn read<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>) -> u8;
+    fn read<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>) -> u8;
 }
 
 pub trait Dst8 {
-    fn write<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>, val: u8);
+    fn write<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>, val: u8);
 }
 
 /// Passing this as source reads an immediate operand from (PC), then increases PC.
 pub struct Imm8;
 
 impl Src8 for Imm8 {
-    fn read<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>) -> u8 {
+    fn read<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>) -> u8 {
         cpu.read8i(board)
     }
 }
@@ -38,7 +38,7 @@ pub enum HighRamOperand {
 }
 
 impl Src8 for HighRamOperand {
-    fn read<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>) -> u8 {
+    fn read<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>) -> u8 {
         let offset = match self {
             HighRamOperand::Imm8 => cpu.read8i(board) as u16,
             HighRamOperand::C => cpu.reg.r8(R8::C) as u16,
@@ -49,7 +49,7 @@ impl Src8 for HighRamOperand {
 }
 
 impl Dst8 for HighRamOperand {
-    fn write<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>, val: u8) {
+    fn write<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>, val: u8) {
         let offset = match self {
             HighRamOperand::Imm8 => cpu.read8i(board) as u16,
             HighRamOperand::C => cpu.reg.r8(R8::C) as u16,
@@ -60,7 +60,7 @@ impl Dst8 for HighRamOperand {
 }
 
 impl Src8 for HlOperand {
-    fn read<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>) -> u8 {
+    fn read<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>) -> u8 {
         match self {
             HlOperand::HLi => {
                 let result = board.read8(cpu.reg.r16(R16::HL));
@@ -77,7 +77,7 @@ impl Src8 for HlOperand {
 }
 
 impl Dst8 for HlOperand {
-    fn write<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>, val: u8) {
+    fn write<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>, val: u8) {
         match self {
             HlOperand::HLi => {
                 board.write8(cpu.reg.r16(R16::HL), val);
@@ -92,25 +92,25 @@ impl Dst8 for HlOperand {
 }
 
 impl Src8 for R8 {
-    fn read<CRAM: CartridgeRam>(self, cpu: &mut CPU, _board: &mut Board<CRAM>) -> u8 {
+    fn read<C: CartridgeMem>(self, cpu: &mut CPU, _board: &mut Board<C>) -> u8 {
         cpu.reg.r8(self)
     }
 }
 
 impl Dst8 for R8 {
-    fn write<CRAM: CartridgeRam>(self, cpu: &mut CPU, _board: &mut Board<CRAM>, val: u8) {
+    fn write<C: CartridgeMem>(self, cpu: &mut CPU, _board: &mut Board<C>, val: u8) {
         *cpu.reg.r8_mut(self) = val;
     }
 }
 
 impl Src8 for R16 {
-    fn read<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>) -> u8 {
+    fn read<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>) -> u8 {
         board.read8(cpu.reg.r16(self))
     }
 }
 
 impl Dst8 for R16 {
-    fn write<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>, val: u8) {
+    fn write<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>, val: u8) {
         board.write8(cpu.reg.r16(self), val);
     }
 }
@@ -118,14 +118,14 @@ impl Dst8 for R16 {
 pub struct ImmAddr;
 
 impl Src8 for ImmAddr {
-    fn read<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>) -> u8 {
+    fn read<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>) -> u8 {
         let addr = cpu.read16i(board);
         board.read8(addr)
     }
 }
 
 impl Dst8 for ImmAddr {
-    fn write<CRAM: CartridgeRam>(self, cpu: &mut CPU, board: &mut Board<CRAM>, val: u8) {
+    fn write<C: CartridgeMem>(self, cpu: &mut CPU, board: &mut Board<C>, val: u8) {
         let addr = cpu.read16i(board);
         board.write8(addr, val);
     }

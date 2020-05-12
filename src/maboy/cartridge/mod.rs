@@ -1,25 +1,51 @@
-pub mod cartridge_desc;
+mod cram;
+mod desc;
+mod mbc;
+mod variant;
 
-use cartridge_desc::CartridgeDesc;
-use std::fs;
-use std::io;
-use std::path::Path;
+use super::address::{CRamAddr, CRomAddr};
+use cram::CartridgeRam;
+use mbc::CartridgeMBC;
+use std::pin::Pin;
 
-pub struct Cartridge {
-    pub(super) bytes: Box<[u8]>,
-}
+pub use variant::CartridgeVariant;
 
-impl Cartridge {
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Cartridge, io::Error> {
-        // TODO: Do a WHOLE LOT more, and handle errors
-        Ok(Cartridge {
-            bytes: fs::read(path)?.into_boxed_slice(),
-        })
+pub struct Cartridge<MBC>(MBC);
+
+impl<MBC: CartridgeMBC> Cartridge<MBC> {
+    fn new(mbc: MBC) -> Cartridge<MBC> {
+        Cartridge(mbc)
     }
 }
 
-impl CartridgeDesc for Cartridge {
-    fn header(&self) -> &[u8] {
-        &self.bytes[0x100..=0x14F]
+// This thing might be replaced by MBC at some point, but for now we
+// keep it in this trait incase some cartridges do some vodoo stuff.
+pub trait CartridgeMem {
+    type MBC: CartridgeMBC;
+
+    fn read_rom(&self, addr: CRomAddr) -> u8;
+    fn write_rom(&mut self, addr: CRomAddr, val: u8);
+
+    fn read_cram(&self, addr: CRamAddr) -> u8;
+    fn write_cram(&mut self, addr: CRamAddr, val: u8);
+}
+
+impl<MBC: CartridgeMBC> CartridgeMem for Cartridge<MBC> {
+    type MBC = MBC;
+
+    fn read_rom(&self, addr: CRomAddr) -> u8 {
+        self.0.read_rom(addr)
+    }
+
+    fn write_rom(&mut self, addr: CRomAddr, val: u8) {
+        self.0.write_rom(addr, val);
+    }
+
+    fn read_cram(&self, addr: CRamAddr) -> u8 {
+        self.0.read_cram(addr)
+    }
+
+    fn write_cram(&mut self, addr: CRamAddr, val: u8) {
+        self.0.write_cram(addr, val);
     }
 }

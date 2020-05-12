@@ -1,7 +1,7 @@
 mod color;
 mod lcdc;
 mod lcds;
-pub mod mem_frame;
+mod mem_frame;
 mod oam;
 mod palette;
 mod pixel_queue;
@@ -12,13 +12,15 @@ mod tile_maps;
 
 use crate::maboy::address::{PpuReg, VideoMemAddr};
 use crate::maboy::interrupt_system::{Interrupt, InterruptSystem};
-use mem_frame::{MemFrame, MemPixel};
+use mem_frame::MemFrame;
 use oam::OAM;
 use palette::Palette;
 use pixel_queue::PixelQueue;
 use ppu_registers::PPURegisters;
 use tile_data::TileData;
 use tile_maps::TileMaps;
+
+pub use mem_frame::MemPixel;
 
 // TODO: This whole file is kind of messy. Rethink the state machine approach.
 

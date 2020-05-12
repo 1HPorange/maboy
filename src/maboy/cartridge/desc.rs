@@ -1,12 +1,13 @@
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
-pub trait CartridgeDesc {
-    fn header(&self) -> &[u8];
 
-    fn title(&self) -> String {
+pub struct CartridgeDesc<'a>(pub &'a [u8]);
+
+impl CartridgeDesc<'_> {
+    pub fn title(&self) -> String {
         // Title is only null-terminated if less than 16 bytes,
         // so we can't rely on that
-        self.header()[0x34..]
+        self.0[0x34..]
             .iter()
             .copied()
             .take_while(|b| *b != 0)
@@ -15,32 +16,30 @@ pub trait CartridgeDesc {
             .collect::<String>()
     }
 
-    fn cartridge_type(&self) -> Option<CartridgeType> {
-        CartridgeType::try_from(self.header()[0x47]).ok()
+    pub fn cartridge_type(&self) -> Option<CartridgeType> {
+        CartridgeType::try_from(self.0[0x47]).ok()
     }
 
-    fn rom_size(&self) -> Option<RomSize> {
-        RomSize::try_from(self.header()[0x48]).ok()
+    pub fn rom_size(&self) -> Option<RomSize> {
+        RomSize::try_from(self.0[0x48]).ok()
     }
 
-    fn ram_size(&self) -> Option<RamSize> {
-        RamSize::try_from(self.header()[0x49]).ok()
+    pub fn ram_size(&self) -> Option<RamSize> {
+        RamSize::try_from(self.0[0x49]).ok()
     }
 
-    fn has_valid_header(&self) -> bool {
-        let header = self.header();
-
+    pub fn has_valid_header(&self) -> bool {
         let mut checksum = 0u8;
         for i in 0x34..=0x4C {
-            checksum = checksum.wrapping_sub(header[i]).wrapping_sub(1);
+            checksum = checksum.wrapping_sub(self.0[i]).wrapping_sub(1);
         }
 
-        header[0x4D] == checksum
+        self.0[0x4D] == checksum
     }
 }
 
 #[allow(non_camel_case_types)]
-#[derive(TryFromPrimitive)]
+#[derive(TryFromPrimitive, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum CartridgeType {
     ROM_ONLY = 0x00,
@@ -74,7 +73,7 @@ pub enum CartridgeType {
     HuC1_RAM_BATTERY = 0xFF,
 }
 
-#[derive(TryFromPrimitive)]
+#[derive(TryFromPrimitive, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum RomSize {
     RomNoBanking = 0x00,
@@ -90,7 +89,7 @@ pub enum RomSize {
     Rom96Banks = 0x54,
 }
 
-#[derive(TryFromPrimitive)]
+#[derive(TryFromPrimitive, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum RamSize {
     RamNone = 0x00,
