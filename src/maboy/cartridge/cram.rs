@@ -7,9 +7,9 @@ pub trait CartridgeRam {
 pub struct NoCRAM;
 
 impl CartridgeRam for NoCRAM {
-    fn read(&self, addr: CRamAddr) -> u8 {
+    fn read(&self, _addr: CRamAddr) -> u8 {
         0xff
     }
 
-    fn write(&mut self, addr: CRamAddr, val: u8) {}
+    fn write(&mut self, _addr: CRamAddr, _val: u8) {}
 }

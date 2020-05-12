@@ -2,6 +2,7 @@
 #[derive(Copy, Clone)]
 pub struct Color(u8);
 
+#[allow(dead_code)] // Detected as dead code since we only transmute into it
 #[repr(u8)]
 pub enum ColorVal {
     C00 = 0b00,

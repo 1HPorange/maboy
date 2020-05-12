@@ -4,9 +4,7 @@ mod mbc;
 mod variant;
 
 use super::address::{CRamAddr, CRomAddr};
-use cram::CartridgeRam;
 use mbc::CartridgeMBC;
-use std::pin::Pin;
 
 pub use variant::CartridgeVariant;
 
@@ -17,9 +15,6 @@ impl<MBC: CartridgeMBC> Cartridge<MBC> {
         Cartridge(mbc)
     }
 }
-
-// This thing might be replaced by MBC at some point, but for now we
-// keep it in this trait incase some cartridges do some vodoo stuff.
 pub trait CartridgeMem {
     type MBC: CartridgeMBC;
 

@@ -1,4 +1,3 @@
-use super::window_factory::WindowFactory;
 use std::marker::PhantomPinned;
 use winapi::shared::minwindef::{LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::HWND;
@@ -20,7 +19,7 @@ pub enum MsgHandlerResult {
 }
 
 impl Window {
-    pub(super) fn new(factory: &WindowFactory, hwnd: HWND, msg_handler: MsgHandler) -> Window {
+    pub(super) fn new(hwnd: HWND, msg_handler: MsgHandler) -> Window {
         Window {
             hwnd,
             msg_handler,

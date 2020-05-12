@@ -47,6 +47,10 @@ impl CartridgeVariant {
 
         let header = CartridgeDesc(&rom[0x100..=0x14F]);
 
+        if !header.has_valid_checksum() {
+            return Err(CartridgeParseError::InvalidChecksum);
+        }
+
         let ctype = header
             .cartridge_type()
             .ok_or(CartridgeParseError::InvalidCartridgeType)?;

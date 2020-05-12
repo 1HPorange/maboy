@@ -173,18 +173,16 @@ pub struct GfxWindow<'w> {
 
 impl<'w> GfxWindow<'w> {
     pub fn next_frame(&mut self) -> GfxFrame<'_, 'w> {
-        unsafe {
-            // Note: Seem like we don't need this stuff. I'll leave it out for now
+        // Note: Seems like we don't need this stuff. I'll leave it out for now
 
-            // Might need to set depth-stencil in here at some point
-            // self.device
-            //     .dc
-            //     .OMSetRenderTargets(1, &self.backbuffer_rtv.as_raw(), ptr::null_mut());
+        // Might need to set depth-stencil in here at some point
+        // self.device
+        //     .dc
+        //     .OMSetRenderTargets(1, &self.backbuffer_rtv.as_raw(), ptr::null_mut());
 
-            // self.device.dc.RSSetViewports(1, &self.viewport);
+        // self.device.dc.RSSetViewports(1, &self.viewport);
 
-            GfxFrame(self)
-        }
+        GfxFrame(self)
     }
 }
 

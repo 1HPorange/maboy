@@ -38,11 +38,13 @@ impl<CRAM: CartridgeRam> CartridgeMBC for NoMBC<CRAM> {
         self.rom[addr as usize]
     }
 
-    fn write_rom(&mut self, addr: CRomAddr, val: u8) {}
+    fn write_rom(&mut self, _addr: CRomAddr, _val: u8) {}
 
     fn read_cram(&self, addr: CRamAddr) -> u8 {
-        0xff
+        self.cram.read(addr)
     }
 
-    fn write_cram(&mut self, addr: CRamAddr, val: u8) {}
+    fn write_cram(&mut self, addr: CRamAddr, val: u8) {
+        self.cram.write(addr, val);
+    }
 }

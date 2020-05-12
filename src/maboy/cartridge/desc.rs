@@ -28,7 +28,7 @@ impl CartridgeDesc<'_> {
         RamSize::try_from(self.0[0x49]).ok()
     }
 
-    pub fn has_valid_header(&self) -> bool {
+    pub fn has_valid_checksum(&self) -> bool {
         let mut checksum = 0u8;
         for i in 0x34..=0x4C {
             checksum = checksum.wrapping_sub(self.0[i]).wrapping_sub(1);

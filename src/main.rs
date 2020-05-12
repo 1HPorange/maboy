@@ -65,7 +65,7 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
                 "MaBoy Emulatin'",
                 160 * 4,
                 144 * 4,
-                Box::new(move |msg, w_param, l_param| {
+                Box::new(move |msg, w_param, _l_param| {
                     window_input.borrow_mut().update(msg, w_param);
                     MsgHandlerResult::RunDefaultMsgHandler
                 }),
