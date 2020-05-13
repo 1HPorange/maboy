@@ -118,7 +118,7 @@ impl<C: CartridgeMem> Board<C> {
         self.write8(addr.wrapping_add(1), (val >> 8) as u8);
     }
 
-    pub fn query_video_frame_status(&self) -> VideoFrameStatus {
+    pub fn query_video_frame_status(&mut self) -> VideoFrameStatus {
         self.ppu.query_frame_status()
     }
 

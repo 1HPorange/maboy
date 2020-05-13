@@ -103,6 +103,7 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
                 frame.copy_from_slice(frame_data);
 
                 os_timing.wait_frame_remaining().unwrap();
+                os_timing.notify_frame_start().unwrap();
 
                 frame.present(false).expect("Could not present frame");
                 frame = gfx_window.next_frame();

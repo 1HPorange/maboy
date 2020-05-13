@@ -40,8 +40,13 @@ pub struct PPU {
     oam: OAM,
     pixel_queue: PixelQueue,
     mem_frame: MemFrame,
+    frame_ready: Option<FrameReady>,
 }
 
+enum FrameReady {
+    VideoFrame,
+    LcdOffFrame,
+}
 pub enum VideoFrameStatus<'a> {
     NotReady,
     LcdTurnedOff,
@@ -50,7 +55,7 @@ pub enum VideoFrameStatus<'a> {
 
 #[derive(Copy, Clone, Debug)]
 pub(super) enum Mode {
-    LCDOff(u8),
+    LCDOff,
 
     /// Mode 0
     HBlank(u8),
@@ -69,24 +74,20 @@ impl PPU {
     pub fn new() -> PPU {
         PPU {
             reg: PPURegisters::new(),
-            mode: Mode::LCDOff(1),
+            mode: Mode::LCDOff,
             wy: 0,
             tile_data: TileData::new(),
             tile_maps: TileMaps::new(),
             oam: OAM::new(),
             pixel_queue: PixelQueue::new(),
             mem_frame: MemFrame::new(),
+            frame_ready: None,
         }
     }
 
     pub fn advance_mcycle(&mut self, ir_system: &mut InterruptSystem) {
         self.mode = match self.mode {
-            Mode::LCDOff(1) => Mode::LCDOff(2),
-            // We don't count up any further here on purpose, as this
-            // could lead to an overflow at some point. We just need the
-            // count on this enum variant to make sure that we only
-            // trigger VideoFrameStatus::LcdTurnedOff once:
-            Mode::LCDOff(n) => Mode::LCDOff(n),
+            Mode::LCDOff => Mode::LCDOff,
 
             // OAM Search
             Mode::OAMSearch(1) => {
@@ -124,6 +125,7 @@ impl PPU {
             // HBlank
             Mode::HBlank(51) if self.reg.ly == 143 => {
                 self.set_ly(ir_system, self.reg.ly + 1);
+                self.frame_ready = Some(FrameReady::VideoFrame);
                 self.change_mode_with_interrupts(ir_system, Mode::VBlank(1))
             }
             Mode::HBlank(51) => {
@@ -149,11 +151,11 @@ impl PPU {
         }
     }
 
-    pub fn query_frame_status(&self) -> VideoFrameStatus {
-        match self.mode {
-            Mode::VBlank(1) => VideoFrameStatus::Ready(self.mem_frame.data()),
-            Mode::LCDOff(1) => VideoFrameStatus::LcdTurnedOff,
-            _ => VideoFrameStatus::NotReady,
+    pub fn query_frame_status(&mut self) -> VideoFrameStatus {
+        match self.frame_ready.take() {
+            Some(FrameReady::VideoFrame) => VideoFrameStatus::Ready(self.mem_frame.data()),
+            Some(FrameReady::LcdOffFrame) => VideoFrameStatus::LcdTurnedOff,
+            None => VideoFrameStatus::NotReady,
         }
     }
 
@@ -206,11 +208,11 @@ impl PPU {
         self.oam.notify_lcdc_changed(self.reg.lcdc);
 
         if self.reg.lcdc.lcd_enabled() {
-            if self.reg.ly < 144 && !matches!(self.mode, Mode::LCDOff(_)) {
+            if self.reg.ly < 144 && !matches!(self.mode, Mode::LCDOff) {
                 log::warn!("Didn't wait for VBlank to disable LCD. This may cause damage on real hardware!")
             }
 
-            if matches!(self.mode, Mode::LCDOff(_)) {
+            if matches!(self.mode, Mode::LCDOff) {
                 // Turn LCD on
                 self.change_mode_with_interrupts(ir_system, Mode::OAMSearch(1));
 
@@ -221,14 +223,15 @@ impl PPU {
                 self.wy = self.reg.wy;
             }
         } else {
-            if !matches!(self.mode, Mode::LCDOff(_)) {
+            if !matches!(self.mode, Mode::LCDOff) {
                 // Turn LCD off
+                self.frame_ready = Some(FrameReady::LcdOffFrame);
 
                 // Do NOT use set_ly here, since we don't trigger LYC interrupts here
                 // even if LYC = 0
                 self.reg.ly = 0;
 
-                self.change_mode_with_interrupts(ir_system, Mode::LCDOff(1));
+                self.change_mode_with_interrupts(ir_system, Mode::LCDOff);
             }
         }
     }

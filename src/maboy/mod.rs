@@ -37,7 +37,7 @@ impl<C: CartridgeMem> Emulator<C> {
         self.cpu.step_instr(&mut self.board);
     }
 
-    pub fn query_video_frame_status(&self) -> VideoFrameStatus {
+    pub fn query_video_frame_status(&mut self) -> VideoFrameStatus {
         self.board.query_video_frame_status()
     }
 
