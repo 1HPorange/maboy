@@ -52,10 +52,6 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
         LEFT_BUTTON_KEY,
     ])));
 
-    // Initialize throttle clock
-    let mut os_timing = OsTiming::new(59.7)
-        .expect("Could not create OS timer. This timer is used to throttle the game.");
-
     // Initialize Window
     let mut window_factory = WindowFactory::new();
 
@@ -94,7 +90,9 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
     // all windows that were created on this thread.
     let mut last_window_msg_poll = Instant::now();
 
-    os_timing.notify_frame_start().unwrap();
+    // Initialize throttle clock
+    let mut os_timing = OsTiming::new(59.7)
+        .expect("Could not create OS timer. This timer is used to throttle the game.");
 
     loop {
         emu.emulate_step();
@@ -105,7 +103,6 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
                 frame.copy_from_slice(frame_data);
 
                 os_timing.wait_frame_remaining().unwrap();
-                os_timing.notify_frame_start().unwrap();
 
                 frame.present(false).expect("Could not present frame");
                 frame = gfx_window.next_frame();

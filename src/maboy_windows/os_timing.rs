@@ -1,5 +1,6 @@
 use std::mem::{self, MaybeUninit};
 use std::ptr;
+use std::time::Duration;
 use winapi::shared::minwindef::{FALSE, TRUE};
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::handleapi::CloseHandle;
@@ -10,9 +11,10 @@ use winapi::um::winnt::HANDLE;
 use winapi::um::winnt::LARGE_INTEGER;
 
 pub struct OsTiming {
-    /// In MICROseconds
     target_frame_duration: i64,
     waitable_timer: HANDLE,
+    /// Frequency of the QueryPerformanceCounter
+    qpc_freq: LARGE_INTEGER,
     last_frame_start: LARGE_INTEGER,
 }
 
@@ -39,18 +41,36 @@ impl OsTiming {
                 return Err(TimerError::CouldNotDetermineTimerFrequency(GetLastError()));
             }
 
-            Ok(OsTiming {
-                // 10_000_000 = 1 second
+            let mut os_timing = OsTiming {
                 target_frame_duration: ((1.0 / target_frame_rate) * *qpc_freq.QuadPart() as f64)
                     as i64,
                 waitable_timer: t_handle,
-                last_frame_start: mem::zeroed(),
-            })
+                qpc_freq,
+                last_frame_start: MaybeUninit::uninit().assume_init(),
+            };
+
+            OsTiming::query_qpc(&mut os_timing.last_frame_start)?;
+
+            Ok(os_timing)
         }
     }
 
-    pub fn notify_frame_start(&mut self) -> Result<(), TimerError> {
-        OsTiming::query_qpc(&mut self.last_frame_start)
+    /// Returns last frame duration
+    pub fn notify_frame_start(&mut self) -> Result<Duration, TimerError> {
+        unsafe {
+            let mut current_pc = MaybeUninit::uninit().assume_init();
+            OsTiming::query_qpc(&mut current_pc)?;
+
+            let mut frame_duration = current_pc.QuadPart() - self.last_frame_start.QuadPart();
+
+            // Convert to MICROseconds
+            frame_duration *= 1_000_000;
+            frame_duration /= self.qpc_freq.QuadPart();
+
+            self.last_frame_start = current_pc;
+
+            Ok(Duration::from_micros(frame_duration as u64))
+        }
     }
 
     /// Does not wait at all if you are already too slow
