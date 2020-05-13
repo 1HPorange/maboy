@@ -131,19 +131,3 @@ impl TileRow for ReverseTileRow {
         self.0 = self.0.rotate_left(n as u32 * 2);
     }
 }
-
-impl TileRow for SpriteTileRow {
-    fn pop_leftmost(&mut self) -> Color {
-        match self {
-            SpriteTileRow::InOrder(row) => row.pop_leftmost(),
-            SpriteTileRow::Reverse(row) => row.pop_leftmost(),
-        }
-    }
-
-    fn discard_leftmost(&mut self, n: u8) {
-        match self {
-            SpriteTileRow::InOrder(row) => row.discard_leftmost(n),
-            SpriteTileRow::Reverse(row) => row.discard_leftmost(n),
-        }
-    }
-}

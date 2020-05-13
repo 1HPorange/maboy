@@ -7,7 +7,8 @@ use std::path::Path;
 
 pub enum CartridgeVariant {
     Unbanked(Cartridge<NoMBC<NoCRAM>>),
-    MBC1_NoRam(Cartridge<MBC1<NoCRAM>>),
+    MBC1NoRam(Cartridge<MBC1<NoCRAM>>),
+    MBC1UnbankedRam(Cartridge<MBC1<CRAMUnbanked>>),
 }
 
 #[derive(Debug)]
@@ -67,18 +68,25 @@ impl CartridgeVariant {
         let err = Err(CartridgeParseError::Unsupported(ctype, rom_size, ram_size));
 
         Ok(match ctype {
-            CartridgeType::ROM_ONLY => match ram_size {
-                RamSize::RamNone => {
-                    CartridgeVariant::Unbanked(Cartridge::new(NoMBC::new(rom, NoCRAM)))
+            CartridgeType::ROM_ONLY | CartridgeType::ROM_RAM | CartridgeType::ROM_RAM_BATTERY => {
+                match ram_size {
+                    RamSize::RamNone => {
+                        CartridgeVariant::Unbanked(Cartridge::new(NoMBC::new(rom, NoCRAM)))
+                    }
+                    _ => unimplemented!(),
                 }
-                _ => return err,
-            },
-            CartridgeType::MBC1 => match ram_size {
-                RamSize::RamNone => {
-                    CartridgeVariant::MBC1_NoRam(Cartridge::new(MBC1::new(rom, NoCRAM)))
+            }
+            CartridgeType::MBC1 | CartridgeType::MBC1_RAM | CartridgeType::MBC1_RAM_BATTERY => {
+                match ram_size {
+                    RamSize::RamNone => {
+                        CartridgeVariant::MBC1NoRam(Cartridge::new(MBC1::new(rom, NoCRAM)))
+                    }
+                    RamSize::Ram8Kb => CartridgeVariant::MBC1UnbankedRam(Cartridge::new(
+                        MBC1::new(rom, CRAMUnbanked::new(ram_size)),
+                    )),
+                    _ => unimplemented!(),
                 }
-                _ => return err,
-            },
+            }
             _ => return err,
         })
     }

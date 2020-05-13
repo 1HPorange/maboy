@@ -122,7 +122,7 @@ impl CPU {
     fn set_halt_state(&mut self, halt_state: HaltState) {
         self.halt_state = match halt_state {
             HaltState::Halted => HaltState::Halted,
-            _ => unimplemented!(),
+            _ => unimplemented!("{:?}", halt_state),
         }
     }
 

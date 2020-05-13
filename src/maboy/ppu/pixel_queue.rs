@@ -59,7 +59,7 @@ impl PixelQueue {
         // If yes, we cannot really mark any pixel as final and might just
         // get rid of the `pixel_src` field
 
-        // Forget about the last line (PERF: This is only necessary if LCD was switched of mid-line,
+        // Forget about the last line (PERF: This is only necessary if LCD was switched off mid-line,
         // otherwise every pixel was already shifted out)
         self.quads = [PixelQuad::zero(); 40];
 
@@ -167,7 +167,7 @@ impl PixelQueue {
             TileRowAddr::from_sprite_tile_id(sprite.id, sprite_line)
         };
 
-        let mut row = if sprite.flags.x_flipped() {
+        let row = if sprite.flags.x_flipped() {
             SpriteTileRow::Reverse(tile_data.get_row_reverse(row_addr))
         } else {
             SpriteTileRow::InOrder(tile_data.get_row(row_addr))
@@ -179,12 +179,9 @@ impl PixelQueue {
             0b11 // Pixel is final
         };
 
-        // If the sprite goes over the left edge of the screen, we disacrd some pixels
-        row.discard_leftmost(8u8.saturating_sub(sprite.x));
-
-        for pidx in sprite.x.max(8) - 8..sprite.x.min(159) {
-            let col = row.pop_leftmost();
-            self.draw_sprite_pix(sprite, ppu_reg.obp0, ppu_reg.obp1, pidx, col, pixel_src);
+        match row {
+            SpriteTileRow::InOrder(row) => self.draw_sprite_row(ppu_reg, row, sprite, pixel_src),
+            SpriteTileRow::Reverse(row) => self.draw_sprite_row(ppu_reg, row, sprite, pixel_src),
         }
     }
 
@@ -231,6 +228,22 @@ impl PixelQueue {
             // This basically sets all pixels to final, regardless of their content.
             // This works because nothing is drawn after this function.
             quad.pixel_src = 0xff;
+        }
+    }
+
+    fn draw_sprite_row<R: TileRow>(
+        &mut self,
+        ppu_reg: &PPURegisters,
+        mut row: R,
+        sprite: Sprite,
+        pixel_src: u8,
+    ) {
+        // If the sprite goes over the left edge of the screen, we disacrd some pixels
+        row.discard_leftmost(7u8.saturating_sub(sprite.x));
+
+        for pidx in sprite.x.max(8) - 8..sprite.x.min(159) {
+            let col = row.pop_leftmost();
+            self.draw_sprite_pix(sprite, ppu_reg.obp0, ppu_reg.obp1, pidx, col, pixel_src);
         }
     }
 

@@ -32,7 +32,8 @@ fn main() {
 
     match cartridge {
         CartridgeVariant::Unbanked(c) => run_emulation(c),
-        CartridgeVariant::MBC1_NoRam(c) => run_emulation(c),
+        CartridgeVariant::MBC1NoRam(c) => run_emulation(c),
+        CartridgeVariant::MBC1UnbankedRam(c) => run_emulation(c),
     }
 }
 

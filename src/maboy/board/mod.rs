@@ -56,11 +56,12 @@ impl<C: CartridgeMem> Board<C> {
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.read_reg(ppu_reg),
             IO(IOReg::IF) => self.ir_system.read_if(),
             IO(IOReg::Unimplemented(addr)) => {
-                unimplemented!("Unimplemented IO read: {:#06X}", addr)
+                log::warn!("Unimplemented IO register read: {:#06X}", addr);
+                0xff // TODO: Implement!
             }
             IO(reg) => {
                 log::warn!("Unimplemented IO register read: {:?}", reg);
-                0xff // TODO: FIX!
+                0xff // TODO: Implement!
             }
             IE => self.ir_system.read_ie(),
         }

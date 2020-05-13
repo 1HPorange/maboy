@@ -224,17 +224,19 @@ impl GfxFrame<'_, '_> {
     pub fn present(self, blocking: bool) -> Result<(), HResultError> {
         unsafe {
             // TODO: Read up on whatever sync intervals are for DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL
+            // TODO: Think about DXGI_PRESENT_DO_NOT_WAIT
+            // TODO: Really read up on the tearing docs at https://docs.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-present
 
-            let mut flags = DXGI_PRESENT_ALLOW_TEARING;
-
-            if !blocking {
-                flags |= DXGI_PRESENT_DO_NOT_WAIT;
-            }
+            let (sync_interval, flags) = if blocking {
+                (1, 0)
+            } else {
+                (0, DXGI_PRESENT_ALLOW_TEARING)
+            };
 
             let result = self
                 .0
                 .swap_chain
-                .Present(0, flags) // TODO: Really read up on the tearing docs at https://docs.microsoft.com/en-us/windows/win32/direct3ddxgi/dxgi-present
+                .Present(sync_interval, flags)
                 .into_result();
 
             if matches!(result, Err(HResultError(DXGI_ERROR_WAS_STILL_DRAWING))) {
