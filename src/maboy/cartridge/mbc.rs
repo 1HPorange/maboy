@@ -21,6 +21,7 @@ pub struct NoMBC<CRAM> {
 
 impl<CRAM: CartridgeRam> NoMBC<CRAM> {
     pub(super) fn new(rom: Box<[u8]>, cram: CRAM) -> NoMBC<CRAM> {
+        debug_assert!(rom.len() == 0x8000);
         NoMBC { rom, cram }
     }
 }
@@ -65,7 +66,9 @@ enum MBC1Mode {
 }
 
 impl<CRAM: CartridgeRam> MBC1<CRAM> {
-    pub fn new(rom: Box<[u8]>, cram: CRAM) -> MBC1<CRAM> {
+    pub(super) fn new(rom: Box<[u8]>, cram: CRAM) -> MBC1<CRAM> {
+        debug_assert!(rom.len() >= 0x8000 && rom.len() % 0x4000 == 0);
+
         let rom = Pin::new(rom);
 
         // Forgets about the lifetime of our slice
