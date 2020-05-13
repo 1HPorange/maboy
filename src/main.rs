@@ -32,7 +32,7 @@ fn main() {
 
     match cartridge {
         CartridgeVariant::Unbanked(c) => run_emulation(c),
-        _ => panic!("Unsupported cartridge format"),
+        CartridgeVariant::MBC1_NoRam(c) => run_emulation(c),
     }
 }
 

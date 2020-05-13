@@ -7,6 +7,7 @@ use std::path::Path;
 
 pub enum CartridgeVariant {
     Unbanked(Cartridge<NoMBC<NoCRAM>>),
+    MBC1_NoRam(Cartridge<MBC1<NoCRAM>>),
 }
 
 #[derive(Debug)]
@@ -41,7 +42,9 @@ impl CartridgeVariant {
             .map_err(|io_err| CartridgeParseError::IoError(io_err))?
             .into_boxed_slice();
 
-        if rom.len() < 0x4000 || rom.len() % 0x4000 != 0 {
+        // This condition sets up an important invariant that a lot of code relies upon,
+        // for example the MBC code. Change it only if you are sure about what you're doing.
+        if rom.len() < 0x8000 || rom.len() % 0x4000 != 0 {
             return Err(CartridgeParseError::InvalidSize);
         }
 
@@ -61,11 +64,22 @@ impl CartridgeVariant {
             .ram_size()
             .ok_or(CartridgeParseError::InvalidRamSize)?;
 
-        Ok(match (ctype, rom_size, ram_size) {
-            (CartridgeType::ROM_ONLY, RomSize::RomNoBanking, RamSize::RamNone) => {
-                CartridgeVariant::Unbanked(Cartridge::new(NoMBC::new(rom, NoCRAM)))
-            }
-            _ => return Err(CartridgeParseError::Unsupported(ctype, rom_size, ram_size)),
+        let err = Err(CartridgeParseError::Unsupported(ctype, rom_size, ram_size));
+
+        Ok(match ctype {
+            CartridgeType::ROM_ONLY => match ram_size {
+                RamSize::RamNone => {
+                    CartridgeVariant::Unbanked(Cartridge::new(NoMBC::new(rom, NoCRAM)))
+                }
+                _ => return err,
+            },
+            CartridgeType::MBC1 => match ram_size {
+                RamSize::RamNone => {
+                    CartridgeVariant::MBC1_NoRam(Cartridge::new(MBC1::new(rom, NoCRAM)))
+                }
+                _ => return err,
+            },
+            _ => return err,
         })
     }
 }
