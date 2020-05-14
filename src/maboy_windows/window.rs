@@ -1,11 +1,15 @@
+use super::window_factory::WindowFactory;
+use std::cell::RefCell;
 use std::marker::PhantomPinned;
+use std::rc::Rc;
 use winapi::shared::minwindef::{LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::HWND;
 use winapi::um::winuser::{ShowWindow, SW_SHOW};
 
 // TODO: Impl drop closing the window properly
-pub struct Window {
+pub struct Window<'f> {
     hwnd: HWND,
+    pub(super) factory: &'f WindowFactory,
     msg_handler: MsgHandler,
     _pin: PhantomPinned,
 }
@@ -18,10 +22,11 @@ pub enum MsgHandlerResult {
     DoNotRunDefaultMsgHandler(LRESULT),
 }
 
-impl Window {
-    pub(super) fn new(hwnd: HWND, msg_handler: MsgHandler) -> Window {
+impl<'f> Window<'f> {
+    pub(super) fn new(factory: &WindowFactory, hwnd: HWND, msg_handler: MsgHandler) -> Window {
         Window {
             hwnd,
+            factory,
             msg_handler,
             _pin: PhantomPinned,
         }

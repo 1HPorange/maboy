@@ -34,7 +34,7 @@ fn main() {
         CartridgeVariant::Unbanked(c) => run_emulation(c),
         CartridgeVariant::MBC1NoRam(c) => run_emulation(c),
         CartridgeVariant::MBC1UnbankedRam(c) => run_emulation(c),
-    }
+    };
 }
 
 fn run_emulation<C: CartridgeMem>(cartridge: C) {
@@ -121,7 +121,9 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
 
         // TODO: Think about the timing of this
         if last_window_msg_poll.elapsed() > Duration::from_millis(16) {
-            window_factory.dispatch_window_msgs();
+            if !window_factory.dispatch_window_msgs() {
+                break;
+            }
 
             let button_states =
                 window_input

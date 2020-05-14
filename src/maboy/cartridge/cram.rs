@@ -45,5 +45,5 @@ impl CartridgeRam for CRAMUnbanked {
         }
     }
 
-    fn select_bank(&mut self, bank: u8) {}
+    fn select_bank(&mut self, _bank: u8) {}
 }
