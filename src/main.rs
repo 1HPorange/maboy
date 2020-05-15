@@ -91,9 +91,7 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
 
     let mut frame = gfx_window.next_frame();
 
-    // When window messages for this thread were last polled and distributed to
-    // all windows that were created on this thread.
-    let mut last_window_msg_poll = Instant::now();
+    let mut last_os_update = Instant::now();
 
     // Initialize throttle clock
     let mut os_timing = OsTiming::new(59.7)
@@ -103,55 +101,35 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
         emu.emulate_step();
 
         match emu.query_video_frame_status() {
-            VideoFrameStatus::NotReady => (),
+            // TODO: Think about this frequency
+            VideoFrameStatus::NotReady => {
+                if last_os_update.elapsed() > Duration::from_millis(20) {
+                    if !os_update(&mut emu, &window_factory, &window_input) {
+                        break;
+                    }
+                    last_os_update = Instant::now();
+                }
+            }
             VideoFrameStatus::Ready(frame_data) => {
                 frame.copy_from_slice(frame_data);
-
-                os_timing.wait_frame_remaining().unwrap();
-                os_timing.notify_frame_start().unwrap();
-
-                frame.present(false).expect("Could not present frame");
+                present_frame(frame, &mut os_timing);
                 frame = gfx_window.next_frame();
+
+                if !os_update(&mut emu, &window_factory, &window_input) {
+                    break;
+                }
+                last_os_update = Instant::now();
             }
             VideoFrameStatus::LcdTurnedOff => {
                 frame.clear(&[0.0, 0.0, 0.0, 1.0]);
-
-                os_timing.wait_frame_remaining().unwrap();
-                os_timing.notify_frame_start().unwrap();
-
-                frame.present(false).expect("Could not present frame");
+                present_frame(frame, &mut os_timing);
                 frame = gfx_window.next_frame();
+
+                if !os_update(&mut emu, &window_factory, &window_input) {
+                    break;
+                }
+                last_os_update = Instant::now();
             }
-        }
-
-        // TODO: Think about the timing of this
-        if last_window_msg_poll.elapsed() > Duration::from_millis(16) {
-            if !window_factory.dispatch_window_msgs() {
-                break;
-            }
-
-            let button_states =
-                window_input
-                    .borrow()
-                    .depressed_keys()
-                    .fold(Buttons::empty(), |mut acc, key| {
-                        match key {
-                            A_BUTTON_KEY => acc.insert(Buttons::A),
-                            B_BUTTON_KEY => acc.insert(Buttons::B),
-                            START_BUTTON_KEY => acc.insert(Buttons::START),
-                            SELECT_BUTTON_KEY => acc.insert(Buttons::SELECT),
-                            UP_BUTTON_KEY => acc.insert(Buttons::UP),
-                            RIGHT_BUTTON_KEY => acc.insert(Buttons::RIGHT),
-                            DOWN_BUTTON_KEY => acc.insert(Buttons::DOWN),
-                            LEFT_BUTTON_KEY => acc.insert(Buttons::LEFT),
-                            _ => (),
-                        }
-                        acc
-                    });
-
-            emu.notify_buttons_state(button_states);
-
-            last_window_msg_poll = Instant::now();
         }
     }
 }
@@ -178,4 +156,44 @@ fn run_with_savegame<C: CartridgeMem>(
     }
 
     Ok(())
+}
+
+fn present_frame(frame: GfxFrame, os_timing: &mut OsTiming) {
+    os_timing.wait_frame_remaining().unwrap();
+    os_timing.notify_frame_start().unwrap();
+
+    frame.present(false).expect("Could not present frame");
+}
+
+fn os_update<C: CartridgeMem>(
+    emu: &mut Emulator<C>,
+    window_factory: &WindowFactory,
+    window_input: &RefCell<WindowInput>,
+) -> bool {
+    if !window_factory.dispatch_window_msgs() {
+        return false;
+    }
+
+    let button_states =
+        window_input
+            .borrow()
+            .depressed_keys()
+            .fold(Buttons::empty(), |mut acc, key| {
+                match key {
+                    A_BUTTON_KEY => acc.insert(Buttons::A),
+                    B_BUTTON_KEY => acc.insert(Buttons::B),
+                    START_BUTTON_KEY => acc.insert(Buttons::START),
+                    SELECT_BUTTON_KEY => acc.insert(Buttons::SELECT),
+                    UP_BUTTON_KEY => acc.insert(Buttons::UP),
+                    RIGHT_BUTTON_KEY => acc.insert(Buttons::RIGHT),
+                    DOWN_BUTTON_KEY => acc.insert(Buttons::DOWN),
+                    LEFT_BUTTON_KEY => acc.insert(Buttons::LEFT),
+                    _ => (),
+                }
+                acc
+            });
+
+    emu.notify_buttons_state(button_states);
+
+    true
 }
