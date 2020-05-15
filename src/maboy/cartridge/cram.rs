@@ -1,3 +1,4 @@
+use super::battery::CartridgeBattery;
 use super::desc::RamSize;
 use crate::maboy::address::CRamAddr;
 
@@ -5,6 +6,8 @@ pub trait CartridgeRam {
     fn read(&self, addr: CRamAddr) -> u8;
     fn write(&mut self, addr: CRamAddr, val: u8);
     fn select_bank(&mut self, bank: u8);
+    fn data(&self) -> &[u8];
+    fn data_mut(&mut self) -> &mut [u8];
 }
 
 pub struct NoCRAM;
@@ -17,6 +20,14 @@ impl CartridgeRam for NoCRAM {
     fn write(&mut self, _addr: CRamAddr, _val: u8) {}
 
     fn select_bank(&mut self, bank: u8) {}
+
+    fn data(&self) -> &[u8] {
+        &[]
+    }
+
+    fn data_mut(&mut self) -> &mut [u8] {
+        &mut []
+    }
 }
 
 pub struct CRAMUnbanked(Box<[u8]>);
@@ -46,4 +57,12 @@ impl CartridgeRam for CRAMUnbanked {
     }
 
     fn select_bank(&mut self, _bank: u8) {}
+
+    fn data(&self) -> &[u8] {
+        &self.0
+    }
+
+    fn data_mut(&mut self) -> &mut [u8] {
+        &mut self.0
+    }
 }

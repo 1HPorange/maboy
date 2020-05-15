@@ -10,6 +10,9 @@ pub trait CartridgeMBC {
 
     fn read_cram(&self, addr: CRamAddr) -> u8;
     fn write_cram(&mut self, addr: CRamAddr, val: u8);
+
+    fn cram(&self) -> &Self::CRAM;
+    fn cram_mut(&mut self) -> &mut Self::CRAM;
 }
 
 // No MBC (although CRAM is supported)
@@ -46,6 +49,14 @@ impl<CRAM: CartridgeRam> CartridgeMBC for NoMBC<CRAM> {
 
     fn write_cram(&mut self, addr: CRamAddr, val: u8) {
         self.cram.write(addr, val);
+    }
+
+    fn cram(&self) -> &Self::CRAM {
+        &self.cram
+    }
+
+    fn cram_mut(&mut self) -> &mut Self::CRAM {
+        &mut self.cram
     }
 }
 
@@ -153,5 +164,13 @@ impl<CRAM: CartridgeRam> CartridgeMBC for MBC1<CRAM> {
 
     fn write_cram(&mut self, addr: CRamAddr, val: u8) {
         self.cram.write(addr, val);
+    }
+
+    fn cram(&self) -> &Self::CRAM {
+        &self.cram
+    }
+
+    fn cram_mut(&mut self) -> &mut Self::CRAM {
+        &mut self.cram
     }
 }

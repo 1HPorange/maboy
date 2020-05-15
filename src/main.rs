@@ -21,8 +21,11 @@ const LEFT_BUTTON_KEY: KeyboardKey = KeyboardKey::A;
 fn main() {
     env_logger::init();
 
+    let mut command_line_args = std::env::args();
+
     // Parse argument as path to ROM
-    let rom_path = std::env::args()
+    let rom_path = command_line_args
+        .by_ref()
         .skip(1)
         .next()
         .expect("Please provide the path to a GameBoy ROM (.gb) as a command-line argument.");
@@ -31,9 +34,11 @@ fn main() {
     let cartridge = CartridgeVariant::from_file(rom_path).expect("Could not open ROM file");
 
     match cartridge {
-        CartridgeVariant::Unbanked(c) => run_emulation(c),
+        CartridgeVariant::RomOnly(c) => run_emulation(c),
         CartridgeVariant::MBC1NoRam(c) => run_emulation(c),
-        CartridgeVariant::MBC1UnbankedRam(c) => run_emulation(c),
+        CartridgeVariant::MBC1UnbankedRamNoBat(c) => run_emulation(c),
+        CartridgeVariant::MBC1UnbankedRamBat(c) => run_with_savegame(c, command_line_args.next())
+            .expect("Failed to load or store savegame"),
     };
 }
 
@@ -149,4 +154,28 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
             last_window_msg_poll = Instant::now();
         }
     }
+}
+
+fn run_with_savegame<C: CartridgeMem>(
+    mut cartridge: C,
+    savegame_path: Option<String>,
+) -> Result<(), std::io::Error> {
+    use std::fs::File;
+    use std::io::Read;
+
+    // Load savegame if path was provided
+    if let Some(path) = &savegame_path {
+        if let Ok(mut save_file) = File::open(path) {
+            save_file.read_exact(cartridge.cram_mut())?;
+        }
+    }
+
+    run_emulation(&mut cartridge);
+
+    // Store savegame if path was provided
+    if let Some(path) = &savegame_path {
+        std::fs::write(path, cartridge.cram())?;
+    }
+
+    Ok(())
 }

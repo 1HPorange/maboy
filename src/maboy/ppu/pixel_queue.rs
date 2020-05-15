@@ -111,25 +111,26 @@ impl PixelQueue {
             let pix = &mut line[pidx as usize];
 
             *pix = match quad.pixel_src & 0b11 {
-                0b00 => MemPixel::from(self.fetch_bg_pix(
-                    tile_data,
-                    tile_maps,
-                    pidx.wrapping_add(ppu_reg.scx),
-                    bg_y,
-                    ppu_reg.bgp,
-                )),
+                0b00 => {
+                    let col = self.fetch_bg_pix(
+                        tile_data,
+                        tile_maps,
+                        pidx.wrapping_add(ppu_reg.scx),
+                        bg_y,
+                    );
+                    MemPixel::from(ppu_reg.bgp.apply(col))
+                }
                 0b10 => {
                     let bg_col = self.fetch_bg_pix(
                         tile_data,
                         tile_maps,
                         pidx.wrapping_add(ppu_reg.scx),
                         bg_y,
-                        ppu_reg.bgp,
                     );
 
                     let sprite_col = Color::from_u8_lsb(quad.pixel_col);
 
-                    MemPixel::from(blend_sprite_col(sprite_col, bg_col))
+                    MemPixel::from(blend_sprite_col(sprite_col, bg_col, ppu_reg.bgp))
                 }
                 _ => MemPixel::from(Color::from_u8_lsb(quad.pixel_col)),
             };
@@ -145,13 +146,12 @@ impl PixelQueue {
         tile_maps: &TileMaps,
         bg_x: u8,
         bg_y: u8,
-        bgp: Palette,
     ) -> Color {
         let row_addr = tile_maps.bg_tile_row_at(bg_x, bg_y);
         let mut row = tile_data.get_row(row_addr);
 
         row.discard_leftmost(bg_x % 8);
-        bgp.apply(row.pop_leftmost())
+        row.pop_leftmost()
     }
 
     fn draw_sprite(
@@ -305,7 +305,7 @@ impl PixelQueue {
 
             // Blend sprite and BG color
             let sprite_col = Color::from_u8_lsb(quad.pixel_col >> quad_shift);
-            blend_sprite_col(sprite_col, col)
+            blend_sprite_col(sprite_col, col, bgp)
         } else {
             // The pixel has col and src 0b00, so we draw over it
             bgp.apply(col)
@@ -318,9 +318,9 @@ impl PixelQueue {
 
 /// For sprites with OBJ-to-BG priority 1, this function calculates
 /// the resulting color of a blend with a BG/WND color
-fn blend_sprite_col(sprite_col: Color, bg_col: Color) -> Color {
+fn blend_sprite_col(sprite_col: Color, bg_col: Color, bg_palette: Palette) -> Color {
     match bg_col.into_val() {
         ColorVal::C00 => sprite_col,
-        _ => bg_col,
+        _ => bg_palette.apply(bg_col),
     }
 }

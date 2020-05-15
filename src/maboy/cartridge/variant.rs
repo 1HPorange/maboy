@@ -6,9 +6,10 @@ use std::fs;
 use std::path::Path;
 
 pub enum CartridgeVariant {
-    Unbanked(Cartridge<NoMBC<NoCRAM>>),
+    RomOnly(Cartridge<NoMBC<NoCRAM>>),
     MBC1NoRam(Cartridge<MBC1<NoCRAM>>),
-    MBC1UnbankedRam(Cartridge<MBC1<CRAMUnbanked>>),
+    MBC1UnbankedRamNoBat(Cartridge<MBC1<CRAMUnbanked>>),
+    MBC1UnbankedRamBat(Cartridge<MBC1<CRAMUnbanked>>),
 }
 
 #[derive(Debug)]
@@ -38,8 +39,8 @@ pub enum CartridgeParseError {
 }
 
 impl CartridgeVariant {
-    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<CartridgeVariant, CartridgeParseError> {
-        let rom = fs::read(path)
+    pub fn from_file(path: String) -> Result<CartridgeVariant, CartridgeParseError> {
+        let rom = fs::read(&path)
             .map_err(|io_err| CartridgeParseError::IoError(io_err))?
             .into_boxed_slice();
 
@@ -71,22 +72,33 @@ impl CartridgeVariant {
             CartridgeType::ROM_ONLY | CartridgeType::ROM_RAM | CartridgeType::ROM_RAM_BATTERY => {
                 match ram_size {
                     RamSize::RamNone => {
-                        CartridgeVariant::Unbanked(Cartridge::new(NoMBC::new(rom, NoCRAM)))
+                        CartridgeVariant::RomOnly(Cartridge::new(path, NoMBC::new(rom, NoCRAM)))
                     }
                     _ => unimplemented!(),
                 }
             }
-            CartridgeType::MBC1 | CartridgeType::MBC1_RAM | CartridgeType::MBC1_RAM_BATTERY => {
-                match ram_size {
-                    RamSize::RamNone => {
-                        CartridgeVariant::MBC1NoRam(Cartridge::new(MBC1::new(rom, NoCRAM)))
-                    }
-                    RamSize::Ram8Kb => CartridgeVariant::MBC1UnbankedRam(Cartridge::new(
-                        MBC1::new(rom, CRAMUnbanked::new(ram_size)),
-                    )),
-                    _ => unimplemented!(),
+            CartridgeType::MBC1 => match ram_size {
+                RamSize::RamNone => {
+                    CartridgeVariant::MBC1NoRam(Cartridge::new(path, MBC1::new(rom, NoCRAM)))
                 }
-            }
+                _ => return err,
+            },
+            CartridgeType::MBC1_RAM => match ram_size {
+                RamSize::RamNone => return err,
+                RamSize::Ram32Kb => unimplemented!(),
+                _ => CartridgeVariant::MBC1UnbankedRamNoBat(Cartridge::new(
+                    path,
+                    MBC1::new(rom, CRAMUnbanked::new(ram_size)),
+                )),
+            },
+            CartridgeType::MBC1_RAM_BATTERY => match ram_size {
+                RamSize::RamNone => return err,
+                RamSize::Ram32Kb => unimplemented!(),
+                _ => CartridgeVariant::MBC1UnbankedRamBat(Cartridge::new(
+                    path,
+                    MBC1::new(rom, CRAMUnbanked::new(ram_size)),
+                )),
+            },
             _ => return err,
         })
     }
