@@ -57,6 +57,8 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
         LEFT_BUTTON_KEY,
     ])));
 
+    let gamepad_input = GamePadInput::find_gamepad();
+
     // Initialize Window
     let mut window_factory = WindowFactory::new();
 
@@ -65,8 +67,8 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
         window_factory
             .create_window(
                 "MaBoy Emulatin'",
-                160 * 4,
-                144 * 4,
+                160 * 5,
+                144 * 5,
                 Box::new(move |msg, w_param, _l_param| {
                     window_input.borrow_mut().update(msg, w_param);
                     MsgHandlerResult::RunDefaultMsgHandler
@@ -104,7 +106,7 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
             // TODO: Think about this frequency
             VideoFrameStatus::NotReady => {
                 if last_os_update.elapsed() > Duration::from_millis(20) {
-                    if !os_update(&mut emu, &window_factory, &window_input) {
+                    if !os_update(&mut emu, &window_factory, &window_input, &gamepad_input) {
                         break;
                     }
                     last_os_update = Instant::now();
@@ -115,7 +117,7 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
                 present_frame(frame, &mut os_timing);
                 frame = gfx_window.next_frame();
 
-                if !os_update(&mut emu, &window_factory, &window_input) {
+                if !os_update(&mut emu, &window_factory, &window_input, &gamepad_input) {
                     break;
                 }
                 last_os_update = Instant::now();
@@ -125,7 +127,7 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
                 present_frame(frame, &mut os_timing);
                 frame = gfx_window.next_frame();
 
-                if !os_update(&mut emu, &window_factory, &window_input) {
+                if !os_update(&mut emu, &window_factory, &window_input, &gamepad_input) {
                     break;
                 }
                 last_os_update = Instant::now();
@@ -169,12 +171,13 @@ fn os_update<C: CartridgeMem>(
     emu: &mut Emulator<C>,
     window_factory: &WindowFactory,
     window_input: &RefCell<WindowInput>,
+    gamepad_input: &Option<GamePadInput>,
 ) -> bool {
     if !window_factory.dispatch_window_msgs() {
         return false;
     }
 
-    let button_states =
+    let mut button_states =
         window_input
             .borrow()
             .depressed_keys()
@@ -192,6 +195,11 @@ fn os_update<C: CartridgeMem>(
                 }
                 acc
             });
+
+    button_states |= gamepad_input
+        .as_ref()
+        .map(|gi| gi.button_state())
+        .unwrap_or(Buttons::empty());
 
     emu.notify_buttons_state(button_states);
 
