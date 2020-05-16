@@ -106,18 +106,45 @@ impl PPU {
                 _ => unimplemented!()
             },
             144 => match scanline_mcycle {
+                0 => self.reg.lcds.set_lyc_equals_ly(false),
                 1 => {
-                    // TODO: This isn't triggered when IF is manually written to this cycle... JESUS
+                    // TODO: VBLANK IR isn't triggered when IF is manually written to this cycle... JESUS
                     self.update_mode(ir_system, Mode::VBlank);
+
+                    let ly_lyc_equal = self.reg.ly == self.reg.lyc;
+                    self.reg.lcds.set_lyc_equals_ly(ly_lyc_equal);
+                    if ly_lyc_equal {
+                        self.trigger_lyc_interrupt(ir_system);
+                    }
                 },
                 _ => unimplemented!()
-            }
-            line if line < 144 => match scanline_mcycle {
+            },
+            153 => match scanline_mcycle {
+                0 => {
+                    self.reg.lcds.set_lyc_equals_ly(false);
+                    self.reg.ly = 0;
+                },
                 1 => {
-
+                    let lyc_equals_153 = 153 == self.reg.lyc;
+                    self.reg.lcds.set_lyc_equals_ly(lyc_equals_153);
+                    if lyc_equals_153 {
+                        self.trigger_lyc_interrupt(ir_system);
+                    }
+                }
+            },
+            line if line < 144 => match scanline_mcycle {
+                0 => self.reg.lcds.set_lyc_equals_ly(false),
+                1 => {
+                    self.update_mode(ir_system, Mode::OAMSearch);
+                    
+                    let ly_lyc_equal = self.reg.ly == self.reg.lyc;
+                    self.reg.lcds.set_lyc_equals_ly(ly_lyc_equal);
+                    if ly_lyc_equal {
+                        self.trigger_lyc_interrupt(ir_system);
+                    }
                 },
                 21 => {
-
+                    self.update_mode(ir_system, Mode::PixelTransfer);
                 },
                 _ => unimplemented!(),
             },
@@ -213,13 +240,8 @@ impl PPU {
         }
     }
 
-    fn update_ly_compare(&mut self, ir_system: &mut InterruptSystem, ly: u8) {
-        self.reg.ly = ly;
-
-        let lyc_equals_ly = ly == self.reg.lyc;
-        self.reg.lcds.set_lyc_equals_ly(lyc_equals_ly);
-
-        if lyc_equals_ly && self.reg.lcds.ly_coincidence_interrupt() {
+    fn trigger_lyc_interrupt(&mut self, ir_system: &mut InterruptSystem) {
+        if self.reg.lcds.ly_coincidence_interrupt() {
             ir_system.schedule_interrupt(Interrupt::LcdStat);
         }
     }
