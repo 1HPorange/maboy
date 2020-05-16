@@ -31,6 +31,7 @@ pub use mem_frame::MemPixel;
 /// changes to the public-facing API of this struct.
 pub struct PPU {
     frame_mcycle: u16,
+    // TODO: Think about if we still need this thing, or should just use LCDS
     mode: Mode,
     reg: PPURegisters,
     /// Changes to the WY register are only recognized at frame start,
@@ -92,15 +93,36 @@ impl PPU {
             return;
         }
 
-        match self.frame_mcycle {
-            0 => {
-                // TODO: Check if this cycle 0 stuff is necessary
-                self.reg.ly = 0;
-                self.mode = Mode::HBlank;
-                self.update_lcds_mode(ir_system);
+        let scanline_mcycle = self.frame_mcycle % 456;
+
+        match self.reg.ly {
+            0 => match scanline_mcycle {
+                1 => {
+                    self.update_mode(ir_system, Mode::OAMSearch);
+                },
+                21 => {
+                    self.update_mode(ir_system, Mode::PixelTransfer);
+                },
+                _ => unimplemented!()
             },
-            _ => unimplemented!()
-        }
+            144 => match scanline_mcycle {
+                1 => {
+                    // TODO: This isn't triggered when IF is manually written to this cycle... JESUS
+                    self.update_mode(ir_system, Mode::VBlank);
+                },
+                _ => unimplemented!()
+            }
+            line if line < 144 => match scanline_mcycle {
+                1 => {
+
+                },
+                21 => {
+
+                },
+                _ => unimplemented!(),
+            },
+            _ => unimplemented!(),
+        };
 
         self.frame_mcycle += 1;
 
@@ -174,9 +196,6 @@ impl PPU {
                 // Turn LCD on
                 self.change_mode_with_interrupts(ir_system, Mode::OAMSearch;
 
-                // When turning back on, we can trigger a potentially outstanding LYC interrupt
-                self.set_ly(ir_system, 0);
-
                 // Save value of WY register for the duration of a frame
                 self.wy = self.reg.wy;
             }
@@ -194,7 +213,7 @@ impl PPU {
         }
     }
 
-    fn set_ly_equals_lyc(&mut self, ir_system: &mut InterruptSystem, ly: u8) {
+    fn update_ly_compare(&mut self, ir_system: &mut InterruptSystem, ly: u8) {
         self.reg.ly = ly;
 
         let lyc_equals_ly = ly == self.reg.lyc;
@@ -205,19 +224,20 @@ impl PPU {
         }
     }
 
-    fn update_lcds_mode(&mut self, ir_system: &mut InterruptSystem) {
-        self.reg.lcds.set_mode(self.mode);
+    fn update_mode(&mut self, ir_system: &mut InterruptSystem, mode: Mode) {
+        self.mode = mode;
+        self.reg.lcds.set_mode(mode);
 
-        match self.mode {
-            Mode::OAMSearch(_) if self.reg.lcds.oam_search_interrupt() => {
+        match mode {
+            Mode::OAMSearch if self.reg.lcds.oam_search_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }
-            Mode::VBlank(_) if self.reg.lcds.v_blank_interrupt() => {
+            Mode::VBlank if self.reg.lcds.v_blank_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat);
                 ir_system.schedule_interrupt(Interrupt::VBlank);
             }
-            Mode::VBlank(_) => ir_system.schedule_interrupt(Interrupt::VBlank),
-            Mode::HBlank(_) if self.reg.lcds.h_blank_interrupt() => {
+            Mode::VBlank => ir_system.schedule_interrupt(Interrupt::VBlank),
+            Mode::HBlank if self.reg.lcds.h_blank_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }
             _ => (),
