@@ -39,10 +39,10 @@ impl LCDS {
 
         match mode {
             Mode::LCDOff => self.0 &= 0b_1111_1000,
-            Mode::HBlank(_) => self.0 &= mode_mask,
-            Mode::VBlank(_) => self.0 = (self.0 & mode_mask) + 1,
-            Mode::OAMSearch(_) => self.0 = (self.0 & mode_mask) + 2,
-            Mode::PixelTransfer(_) => self.0 = (self.0 & mode_mask) + 3,
+            Mode::HBlank => self.0 &= mode_mask,
+            Mode::VBlank => self.0 = (self.0 & mode_mask) + 1,
+            Mode::OAMSearch => self.0 = (self.0 & mode_mask) + 2,
+            Mode::PixelTransfer => self.0 = (self.0 & mode_mask) + 3,
         }
     }
 

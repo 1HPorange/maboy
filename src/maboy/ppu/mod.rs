@@ -30,8 +30,9 @@ pub use mem_frame::MemPixel;
 /// However, if you understand how to do it, it should be possible without any
 /// changes to the public-facing API of this struct.
 pub struct PPU {
+    frame_mcycle: u16,
+    mode: Mode,
     reg: PPURegisters,
-    mode: Mode, // TODO: Extract this thing into its own struct
     /// Changes to the WY register are only recognized at frame start,
     /// so we save the original value in here for the duration of 1 frame.
     wy: u8,
@@ -58,23 +59,24 @@ pub(super) enum Mode {
     LCDOff,
 
     /// Mode 0
-    HBlank(u8),
+    HBlank,
 
     /// Mode 1
-    VBlank(u16),
+    VBlank,
 
     /// Mode 2
-    OAMSearch(u8),
+    OAMSearch,
 
     /// Mode 3
-    PixelTransfer(u8),
+    PixelTransfer,
 }
 
 impl PPU {
     pub fn new() -> PPU {
         PPU {
-            reg: PPURegisters::new(),
+            frame_mcycle: 0,
             mode: Mode::LCDOff,
+            reg: PPURegisters::new(),
             wy: 0,
             tile_data: TileData::new(),
             tile_maps: TileMaps::new(),
@@ -86,68 +88,24 @@ impl PPU {
     }
 
     pub fn advance_mcycle(&mut self, ir_system: &mut InterruptSystem) {
-        self.mode = match self.mode {
-            Mode::LCDOff => Mode::LCDOff,
+        if matches!(self.mode, Mode::LCDOff) {
+            return;
+        }
 
-            // OAM Search
-            Mode::OAMSearch(1) => {
-                self.oam.rebuild();
-                self.tile_data.rebuild();
+        match self.frame_mcycle {
+            0 => {
+                // TODO: Check if this cycle 0 stuff is necessary
+                self.reg.ly = 0;
+                self.mode = Mode::HBlank;
+                self.update_lcds_mode(ir_system);
+            },
+            _ => unimplemented!()
+        }
 
-                self.pixel_queue.push_scanline(
-                    &self.reg,
-                    &self.tile_maps,
-                    &self.tile_data,
-                    &self.oam,
-                );
-                Mode::OAMSearch(2)
-            }
-            Mode::OAMSearch(20) => {
-                self.tile_data.rebuild();
-                self.change_mode_with_interrupts(ir_system, Mode::PixelTransfer(1))
-            }
-            Mode::OAMSearch(n) => Mode::OAMSearch(n + 1),
+        self.frame_mcycle += 1;
 
-            // Pixel Transfer
-            Mode::PixelTransfer(43) => self.change_mode_with_interrupts(ir_system, Mode::HBlank(1)),
-            Mode::PixelTransfer(n) if n <= 40 => {
-                self.pixel_queue.pop_pixel_quad(
-                    &self.tile_data,
-                    &self.tile_maps,
-                    &self.reg,
-                    self.mem_frame.line(self.reg.ly),
-                    n - 1,
-                );
-                Mode::PixelTransfer(n + 1)
-            }
-            Mode::PixelTransfer(n) => Mode::PixelTransfer(n + 1),
-
-            // HBlank
-            Mode::HBlank(51) if self.reg.ly == 143 => {
-                self.set_ly(ir_system, self.reg.ly + 1);
-                self.frame_ready = Some(FrameReady::VideoFrame);
-                self.change_mode_with_interrupts(ir_system, Mode::VBlank(1))
-            }
-            Mode::HBlank(51) => {
-                self.set_ly(ir_system, self.reg.ly + 1);
-                self.change_mode_with_interrupts(ir_system, Mode::OAMSearch(1))
-            }
-            Mode::HBlank(n) => Mode::HBlank(n + 1),
-
-            // VBlank
-            Mode::VBlank(1140) => {
-                self.set_ly(ir_system, 0); // TODO: I think this happens earlier
-
-                // Save value of WY register for the duration of a frame
-                self.wy = self.reg.wy;
-
-                self.change_mode_with_interrupts(ir_system, Mode::OAMSearch(1))
-            }
-            Mode::VBlank(n) if n % 114 == 0 => {
-                self.set_ly(ir_system, self.reg.ly + 1);
-                Mode::VBlank(n + 1)
-            }
-            Mode::VBlank(n) => Mode::VBlank(n + 1),
+        if self.frame_ready == asd {
+            self.frame_ready = 0;
         }
     }
 
@@ -214,7 +172,7 @@ impl PPU {
 
             if matches!(self.mode, Mode::LCDOff) {
                 // Turn LCD on
-                self.change_mode_with_interrupts(ir_system, Mode::OAMSearch(1));
+                self.change_mode_with_interrupts(ir_system, Mode::OAMSearch;
 
                 // When turning back on, we can trigger a potentially outstanding LYC interrupt
                 self.set_ly(ir_system, 0);
@@ -236,7 +194,7 @@ impl PPU {
         }
     }
 
-    fn set_ly(&mut self, ir_system: &mut InterruptSystem, ly: u8) {
+    fn set_ly_equals_lyc(&mut self, ir_system: &mut InterruptSystem, ly: u8) {
         self.reg.ly = ly;
 
         let lyc_equals_ly = ly == self.reg.lyc;
@@ -247,12 +205,10 @@ impl PPU {
         }
     }
 
-    // TODO: Replace with individual "change-to-mode" functions
-    fn change_mode_with_interrupts(&mut self, ir_system: &mut InterruptSystem, mode: Mode) -> Mode {
-        self.mode = mode;
-        self.reg.lcds.set_mode(mode);
+    fn update_lcds_mode(&mut self, ir_system: &mut InterruptSystem) {
+        self.reg.lcds.set_mode(self.mode);
 
-        match mode {
+        match self.mode {
             Mode::OAMSearch(_) if self.reg.lcds.oam_search_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }
@@ -266,7 +222,5 @@ impl PPU {
             }
             _ => (),
         }
-
-        mode
     }
 }
