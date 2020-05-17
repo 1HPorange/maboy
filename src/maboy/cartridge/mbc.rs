@@ -150,7 +150,7 @@ impl<CRAM: CartridgeRam> CartridgeMBC for MBC1<CRAM> {
                 }
                 1 => {
                     self.mode = MBC1Mode::RamBanking;
-                    self.mapped_bank_index &= 0x0F;
+                    self.mapped_bank_index &= 0x1F;
                     self.update_mapped_bank();
                 }
                 n => log::warn!("Invalid value {:#04X} written to MBC1 mode select", n),
