@@ -209,6 +209,9 @@ pub fn add_sp_r8<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>) {
     cpu.reg
         .flags_mut()
         .set(Flags::C, (old & 0xFF) + (offset & 0xFF) > 0xFF);
+
+    board.advance_mcycle();
+    board.advance_mcycle();
 }
 
 pub fn inc_rr<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, rr: R16) {
