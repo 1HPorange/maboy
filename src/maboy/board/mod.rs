@@ -70,20 +70,22 @@ impl<C: CartridgeMem> Board<C> {
     pub fn read8(&mut self, addr: u16) -> u8 {
         let addr = Addr::from(addr);
 
+        self.advance_mcycle();
+
         // Guard memory during DMA
         if self.oam_dma.is_active() && (!addr.is_in_hram()) {
             return 0xff;
         }
 
-        let result = self.read8_instant(addr);
-        self.advance_mcycle();
-        result
+        self.read8_instant(addr)
     }
 
     pub fn write8(&mut self, addr: u16, val: u8) {
         use Addr::*;
 
         let addr = Addr::from(addr);
+
+        self.advance_mcycle();
 
         // Guard memory during DMA
         if self.oam_dma.is_active() && (!addr.is_in_hram()) {
@@ -105,8 +107,6 @@ impl<C: CartridgeMem> Board<C> {
             IO(reg) => log::warn!("Unimplemented IO write: {:?}", reg),
             IE => self.ir_system.write_ie(val),
         }
-
-        self.advance_mcycle();
     }
 
     pub fn read16(&mut self, addr: u16) -> u16 {

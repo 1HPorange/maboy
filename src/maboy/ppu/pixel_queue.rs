@@ -54,7 +54,7 @@ impl PixelQueue {
         tile_maps: &TileMaps,
         tile_data: &TileData,
         oam: &OAM,
-    ) {
+    ) -> u8 {
         // TODO: See if BG, Window and Sprites can be enabled mid scanline
         // If yes, we cannot really mark any pixel as final and might just
         // get rid of the `pixel_src` field
@@ -63,9 +63,12 @@ impl PixelQueue {
         // otherwise every pixel was already shifted out)
         self.quads = [PixelQuad::zero(); 40];
 
+        let mut num_sprites = 0;
+
         if ppu_reg.lcdc.sprites_enabled() {
             for sprite in oam.sprites_in_line(ppu_reg.ly) {
                 self.draw_sprite(tile_data, ppu_reg, sprite, (ppu_reg.ly + 16) - sprite.y);
+                num_sprites += 1;
             }
         }
 
@@ -92,6 +95,8 @@ impl PixelQueue {
             // Just set all unknown pixel sources to known
             self.draw_empty_bg();
         }
+
+        num_sprites
     }
 
     pub fn pop_pixel_quad(

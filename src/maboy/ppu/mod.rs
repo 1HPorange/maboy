@@ -30,10 +30,14 @@ pub use mem_frame::MemPixel;
 /// However, if you understand how to do it, it should be possible without any
 /// changes to the public-facing API of this struct.
 pub struct PPU {
-    frame_mcycle: u16,
+    scanline_mcycle: u8,
+    // How many mcycles mode 0 is delayed due to sprites in the current scanline
+    scanline_sprite_delay: u8,
     // TODO: Think about if we still need this thing, or should just use LCDS
     mode: Mode,
     reg: PPURegisters,
+    /// We need an internal copy of ly due to weird behaviour on scanline 153
+    ly: u8,
     /// Changes to the WY register are only recognized at frame start,
     /// so we save the original value in here for the duration of 1 frame.
     wy: u8,
@@ -75,9 +79,11 @@ pub(super) enum Mode {
 impl PPU {
     pub fn new() -> PPU {
         PPU {
-            frame_mcycle: 0,
+            scanline_mcycle: 0,
+            scanline_sprite_delay: 0,
             mode: Mode::LCDOff,
             reg: PPURegisters::new(),
+            ly: 0,
             wy: 0,
             tile_data: TileData::new(),
             tile_maps: TileMaps::new(),
@@ -88,73 +94,132 @@ impl PPU {
         }
     }
 
+    // TODO: Accurate timings for Mode 2 interrupt
     pub fn advance_mcycle(&mut self, ir_system: &mut InterruptSystem) {
         if matches!(self.mode, Mode::LCDOff) {
             return;
         }
 
-        let scanline_mcycle = self.frame_mcycle % 456;
-
-        match self.reg.ly {
-            0 => match scanline_mcycle {
+        match self.ly {
+            0 => match self.scanline_mcycle {
+                0 => {
+                    self.reg.ly = 0;
+                    self.update_mode(ir_system, Mode::HBlank);
+                }
                 1 => {
                     self.update_mode(ir_system, Mode::OAMSearch);
-                },
+                }
                 21 => {
                     self.update_mode(ir_system, Mode::PixelTransfer);
-                },
-                _ => unimplemented!()
+                    self.oam.rebuild();
+                    self.tile_data.rebuild();
+                    let num_sprites = self.pixel_queue.push_scanline(
+                        &self.reg,
+                        &self.tile_maps,
+                        &self.tile_data,
+                        &self.oam,
+                    );
+                    self.scanline_sprite_delay = num_sprites * 2;
+                }
+                n if n > 21 && n <= 61 => {
+                    self.pixel_queue.pop_pixel_quad(
+                        &self.tile_data,
+                        &self.tile_maps,
+                        &self.reg,
+                        self.mem_frame.line(self.ly),
+                        n - 22,
+                    );
+                }
+                n if n == 64 + self.scanline_sprite_delay => {
+                    self.update_mode(ir_system, Mode::HBlank);
+                }
+                _ => (),
             },
-            144 => match scanline_mcycle {
-                0 => self.reg.lcds.set_lyc_equals_ly(false),
+            144 => match self.scanline_mcycle {
+                0 => {
+                    self.reg.ly = 144;
+                    self.reg.lcds.set_lyc_equals_ly(false);
+                }
                 1 => {
                     // TODO: VBLANK IR isn't triggered when IF is manually written to this cycle... JESUS
+                    // Actually, this might already happen... hmmm
                     self.update_mode(ir_system, Mode::VBlank);
-
-                    let ly_lyc_equal = self.reg.ly == self.reg.lyc;
-                    self.reg.lcds.set_lyc_equals_ly(ly_lyc_equal);
-                    if ly_lyc_equal {
-                        self.trigger_lyc_interrupt(ir_system);
-                    }
-                },
-                _ => unimplemented!()
-            },
-            153 => match scanline_mcycle {
-                0 => {
-                    self.reg.lcds.set_lyc_equals_ly(false);
-                    self.reg.ly = 0;
-                },
-                1 => {
-                    let lyc_equals_153 = 153 == self.reg.lyc;
-                    self.reg.lcds.set_lyc_equals_ly(lyc_equals_153);
-                    if lyc_equals_153 {
-                        self.trigger_lyc_interrupt(ir_system);
-                    }
+                    self.update_lyc_equals_ly(ir_system, 144);
                 }
+                _ => (),
             },
-            line if line < 144 => match scanline_mcycle {
-                0 => self.reg.lcds.set_lyc_equals_ly(false),
+            153 => match self.scanline_mcycle {
+                0 => {
+                    self.reg.ly = 153;
+                    self.reg.lcds.set_lyc_equals_ly(false);
+                }
+                1 => {
+                    self.reg.ly = 0;
+                    self.update_lyc_equals_ly(ir_system, 153);
+                }
+                2 => self.reg.lcds.set_lyc_equals_ly(false),
+                3 => {
+                    self.update_lyc_equals_ly(ir_system, 0);
+                }
+                _ => (),
+            },
+            line if line < 144 => match self.scanline_mcycle {
+                0 => {
+                    self.reg.ly = line;
+                    self.reg.lcds.set_lyc_equals_ly(false);
+                }
                 1 => {
                     self.update_mode(ir_system, Mode::OAMSearch);
-                    
-                    let ly_lyc_equal = self.reg.ly == self.reg.lyc;
-                    self.reg.lcds.set_lyc_equals_ly(ly_lyc_equal);
-                    if ly_lyc_equal {
-                        self.trigger_lyc_interrupt(ir_system);
-                    }
-                },
+                    self.update_lyc_equals_ly(ir_system, line);
+                }
                 21 => {
                     self.update_mode(ir_system, Mode::PixelTransfer);
-                },
-                _ => unimplemented!(),
+                    self.oam.rebuild();
+                    self.tile_data.rebuild();
+                    let num_sprites = self.pixel_queue.push_scanline(
+                        &self.reg,
+                        &self.tile_maps,
+                        &self.tile_data,
+                        &self.oam,
+                    );
+                    self.scanline_sprite_delay = num_sprites * 2;
+                }
+                n if n > 21 && n <= 61 => {
+                    self.pixel_queue.pop_pixel_quad(
+                        &self.tile_data,
+                        &self.tile_maps,
+                        &self.reg,
+                        self.mem_frame.line(self.ly),
+                        n - 22,
+                    );
+                }
+                n if n == 64 + self.scanline_sprite_delay => {
+                    self.update_mode(ir_system, Mode::HBlank);
+                }
+                _ => (),
             },
-            _ => unimplemented!(),
+            line => match self.scanline_mcycle {
+                0 => {
+                    self.reg.ly = line;
+                    self.reg.lcds.set_lyc_equals_ly(false)
+                }
+                1 => {
+                    self.update_lyc_equals_ly(ir_system, line);
+                }
+                _ => (),
+            },
         };
 
-        self.frame_mcycle += 1;
+        self.scanline_mcycle += 1;
 
-        if self.frame_ready == asd {
-            self.frame_ready = 0;
+        if self.scanline_mcycle == 114 {
+            self.scanline_mcycle = 0;
+
+            self.ly += 1;
+            if self.ly == 154 {
+                self.ly = 0;
+                self.frame_ready = Some(FrameReady::VideoFrame);
+            }
         }
     }
 
@@ -203,11 +268,11 @@ impl PPU {
     }
 
     fn vram_accessible(&self) -> bool {
-        !matches!(self.mode, Mode::PixelTransfer(_))
+        !matches!(self.mode, Mode::PixelTransfer)
     }
 
     fn oam_accessible(&self) -> bool {
-        !matches!(self.mode, Mode::OAMSearch(_) | Mode::PixelTransfer(_))
+        !matches!(self.mode, Mode::OAMSearch | Mode::PixelTransfer)
     }
 
     fn notify_lcdc_changed(&mut self, ir_system: &mut InterruptSystem) {
@@ -221,22 +286,35 @@ impl PPU {
 
             if matches!(self.mode, Mode::LCDOff) {
                 // Turn LCD on
-                self.change_mode_with_interrupts(ir_system, Mode::OAMSearch;
+                self.update_mode(ir_system, Mode::OAMSearch);
 
                 // Save value of WY register for the duration of a frame
                 self.wy = self.reg.wy;
             }
         } else {
             if !matches!(self.mode, Mode::LCDOff) {
+                // TODO: TURN OFF function
+
                 // Turn LCD off
                 self.frame_ready = Some(FrameReady::LcdOffFrame);
 
-                // Do NOT use set_ly here, since we don't trigger LYC interrupts here
-                // even if LYC = 0
+                // Does NOT trigger LCD_STAT interrupt
                 self.reg.ly = 0;
 
-                self.change_mode_with_interrupts(ir_system, Mode::LCDOff);
+                // TODO: Move this into some sort TURN ON function
+                self.ly = 0;
+                self.scanline_mcycle = 0;
+
+                self.update_mode(ir_system, Mode::LCDOff);
             }
+        }
+    }
+
+    fn update_lyc_equals_ly(&mut self, ir_system: &mut InterruptSystem, ly: u8) {
+        let ly_lyc_equal = ly == self.reg.lyc;
+        self.reg.lcds.set_lyc_equals_ly(ly_lyc_equal);
+        if ly_lyc_equal {
+            self.trigger_lyc_interrupt(ir_system);
         }
     }
 
