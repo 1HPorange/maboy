@@ -107,8 +107,13 @@ impl<CRAM: CartridgeRam> MBC1<CRAM> {
         let bank_idx = self.mapped_bank_index as usize * 0x4000;
 
         self.mapped_bank = if self.rom.len() >= bank_idx + 0x4000 {
+            log::debug!("Switched to ROM bank {}", self.mapped_bank_index);
             Some(unsafe { std::mem::transmute(&self.rom[bank_idx..]) })
         } else {
+            log::warn!(
+                "Attempted to switch to non-existant ROM bank {}",
+                self.mapped_bank_index
+            );
             None
         }
     }
