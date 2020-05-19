@@ -1,6 +1,6 @@
 mod oam_dma;
 
-use super::address::{Addr, IOReg};
+use super::address::{Addr, IOReg, VideoMemAddr};
 use super::cartridge::CartridgeMem;
 use super::interrupt_system::{Interrupt, InterruptSystem};
 use super::joypad::{Buttons, JoyPad};
@@ -47,6 +47,8 @@ impl<C: CartridgeMem> Board<C> {
 
         match addr {
             Mem(mem_addr) => self.mem.read8(mem_addr),
+            // OAM is unavailable during OAM DMA
+            VideoMem(VideoMemAddr::OAM(_)) if self.oam_dma.is_active() => 0xff,
             VideoMem(vid_mem_addr) => self.ppu.read_video_mem(vid_mem_addr),
             // TODO: Research if read of Unusable always return 0 even in different PPU modes
             Unusable => 0, // Reads from here curiously return 0 on DMG systems
@@ -54,6 +56,7 @@ impl<C: CartridgeMem> Board<C> {
             IO(IOReg::Serial(serial_reg)) => self.serial_port.read_reg(serial_reg),
             IO(IOReg::Timer(timer_reg)) => self.timer.read_reg(timer_reg),
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.read_reg(ppu_reg),
+            IO(IOReg::OamDma) => self.oam_dma.read_ff46(),
             IO(IOReg::IF) => self.ir_system.read_if(),
             IO(IOReg::Unimplemented(addr)) => {
                 log::warn!("Unimplemented IO register read: {:#06X}", addr);
@@ -72,11 +75,6 @@ impl<C: CartridgeMem> Board<C> {
 
         self.advance_mcycle();
 
-        // Guard memory during DMA
-        if self.oam_dma.is_active() && (!addr.is_in_hram()) {
-            return 0xff;
-        }
-
         self.read8_instant(addr)
     }
 
@@ -87,13 +85,10 @@ impl<C: CartridgeMem> Board<C> {
 
         self.advance_mcycle();
 
-        // Guard memory during DMA
-        if self.oam_dma.is_active() && (!addr.is_in_hram()) {
-            return;
-        }
-
         match addr {
             Mem(mem_addr) => self.mem.write8(mem_addr, val),
+            // OAM is unavailable during OAM DMA
+            VideoMem(VideoMemAddr::OAM(_)) if self.oam_dma.is_active() => (),
             VideoMem(vid_mem_addr) => self.ppu.write_video_mem(vid_mem_addr, val),
             Unusable => (), // Writes to here are ignored by DMG systems
             IO(IOReg::P1) => self.joypad.write_p1(val),

@@ -5,6 +5,7 @@ use crate::maboy::cartridge::CartridgeMem;
 // TODO: Disable sprite rendering while DMAing
 
 pub struct OamDma {
+    reg: u8,
     src_addr: u16,
     oam_dst_idx: u8,
     read_buf: u8,
@@ -13,6 +14,7 @@ pub struct OamDma {
 impl OamDma {
     pub fn new() -> OamDma {
         OamDma {
+            reg: 0,
             src_addr: 0,
             oam_dst_idx: 0xFF,
             read_buf: 0,
@@ -23,13 +25,22 @@ impl OamDma {
         self.oam_dst_idx < 0xA0
     }
 
+    pub fn read_ff46(&self) -> u8 {
+        self.reg
+    }
+
     pub fn write_ff46(&mut self, val: u8) {
-        if self.is_active() {
-            unimplemented!("Attempting to start DMA while DMA is active - IDK what happens here");
-        }
+        self.reg = val;
+
+        // Actually, OAM DMA just starts again if it is already running, so this is incorrect:
+        // if self.is_active() {
+        //     log::debug!("Attempting to start DMA while DMA is active - DMA request ignored");
+        //     return;
+        // }
 
         if val > 0xf1 {
-            unimplemented!("Illegal source address range for OAM DMA");
+            log::debug!("Illegal source address range for OAM DMA");
+            return;
         }
 
         self.src_addr = (val as u16) * 0x100;

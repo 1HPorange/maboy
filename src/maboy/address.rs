@@ -123,14 +123,6 @@ pub enum TimerReg {
     TAC,  // 0xFF07
 }
 
-// TODO: Get rid of the duplication below, if possible without losing performance
-
-impl Addr {
-    pub fn is_in_hram(&self) -> bool {
-        matches!(self, Addr::Mem(MemAddr::HRAM(_)))
-    }
-}
-
 impl From<u16> for Addr {
     fn from(addr: u16) -> Self {
         use Addr::*;

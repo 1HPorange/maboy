@@ -219,6 +219,9 @@ impl PPU {
 
             self.ly += 1;
             if self.ly == 154 {
+                // TODO: Investigate this whole WY timing more
+                self.wy = self.reg.wy;
+
                 self.ly = 0;
                 self.frame_ready = Some(FrameReady::VideoFrame);
             }
