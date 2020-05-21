@@ -245,6 +245,7 @@ impl PPU {
 
         match reg {
             PpuReg::LCDC => self.notify_lcdc_changed(ir_system),
+            PpuReg::LYC => self.update_lyc_equals_ly(ir_system, self.reg.lyc), // TODO: Check if this behaviour is correct
             _ => (),
         }
     }
@@ -318,13 +319,7 @@ impl PPU {
     fn update_lyc_equals_ly(&mut self, ir_system: &mut InterruptSystem, ly: u8) {
         let ly_lyc_equal = ly == self.reg.lyc;
         self.reg.lcds.set_lyc_equals_ly(ly_lyc_equal);
-        if ly_lyc_equal {
-            self.trigger_lyc_interrupt(ir_system);
-        }
-    }
-
-    fn trigger_lyc_interrupt(&mut self, ir_system: &mut InterruptSystem) {
-        if self.reg.lcds.ly_coincidence_interrupt() {
+        if ly_lyc_equal && self.reg.lcds.ly_coincidence_interrupt() {
             ir_system.schedule_interrupt(Interrupt::LcdStat);
         }
     }
@@ -337,11 +332,13 @@ impl PPU {
             Mode::OAMSearch if self.reg.lcds.oam_search_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }
-            Mode::VBlank if self.reg.lcds.v_blank_interrupt() => {
-                ir_system.schedule_interrupt(Interrupt::LcdStat);
+            Mode::VBlank => {
+                if self.reg.lcds.v_blank_interrupt() {
+                    ir_system.schedule_interrupt(Interrupt::LcdStat);
+                }
+
                 ir_system.schedule_interrupt(Interrupt::VBlank);
             }
-            Mode::VBlank => ir_system.schedule_interrupt(Interrupt::VBlank),
             Mode::HBlank if self.reg.lcds.h_blank_interrupt() => {
                 ir_system.schedule_interrupt(Interrupt::LcdStat)
             }
