@@ -13,6 +13,7 @@ mod tile_maps;
 use crate::maboy::address::{PpuReg, VideoMemAddr};
 use crate::maboy::interrupt_system::{Interrupt, InterruptSystem};
 use mem_frame::MemFrame;
+use num_enum::UnsafeFromPrimitive;
 use oam::OAM;
 use palette::Palette;
 use pixel_queue::PixelQueue;
@@ -59,21 +60,22 @@ pub enum VideoFrameStatus<'a> {
     Ready(&'a [MemPixel]),
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, UnsafeFromPrimitive)]
+#[repr(u8)]
 pub(super) enum Mode {
-    LCDOff,
+    LCDOff = 4,
 
     /// Mode 0
-    HBlank,
+    HBlank = 0,
 
     /// Mode 1
-    VBlank,
+    VBlank = 1,
 
     /// Mode 2
-    OAMSearch,
+    OAMSearch = 2,
 
     /// Mode 3
-    PixelTransfer,
+    PixelTransfer = 3,
 }
 
 impl PPU {
@@ -245,7 +247,7 @@ impl PPU {
 
         match reg {
             PpuReg::LCDC => self.notify_lcdc_changed(ir_system),
-            PpuReg::LYC => self.update_lyc_equals_ly(ir_system, self.reg.lyc), // TODO: Check if this behaviour is correct
+            PpuReg::LYC => self.update_lyc_equals_ly(ir_system, self.reg.ly), // TODO: Check if this behaviour is correct
             _ => (),
         }
     }
@@ -292,7 +294,9 @@ impl PPU {
 
             if matches!(self.mode, Mode::LCDOff) {
                 // Turn LCD on
-                self.update_mode(ir_system, Mode::OAMSearch);
+
+                // TODO: Investigate the timing of this...
+                self.update_mode(ir_system, Mode::HBlank);
 
                 // Save value of WY register for the duration of a frame
                 self.wy = self.reg.wy;
@@ -318,31 +322,39 @@ impl PPU {
 
     fn update_lyc_equals_ly(&mut self, ir_system: &mut InterruptSystem, ly: u8) {
         let ly_lyc_equal = ly == self.reg.lyc;
-        self.reg.lcds.set_lyc_equals_ly(ly_lyc_equal);
-        if ly_lyc_equal && self.reg.lcds.ly_coincidence_interrupt() {
+
+        if ly_lyc_equal
+            && self.reg.lcds.ly_coincidence_interrupt()
+            && (!self.reg.lcds.any_conditions_met())
+        {
             ir_system.schedule_interrupt(Interrupt::LcdStat);
         }
+
+        self.reg.lcds.set_lyc_equals_ly(ly_lyc_equal);
     }
 
     fn update_mode(&mut self, ir_system: &mut InterruptSystem, mode: Mode) {
         self.mode = mode;
-        self.reg.lcds.set_mode(mode);
 
-        match mode {
-            Mode::OAMSearch if self.reg.lcds.oam_search_interrupt() => {
-                ir_system.schedule_interrupt(Interrupt::LcdStat)
-            }
-            Mode::VBlank => {
-                if self.reg.lcds.v_blank_interrupt() {
-                    ir_system.schedule_interrupt(Interrupt::LcdStat);
+        if !self.reg.lcds.any_conditions_met() {
+            match mode {
+                Mode::OAMSearch if self.reg.lcds.oam_search_interrupt() => {
+                    ir_system.schedule_interrupt(Interrupt::LcdStat)
                 }
+                Mode::VBlank => {
+                    if self.reg.lcds.v_blank_interrupt() {
+                        ir_system.schedule_interrupt(Interrupt::LcdStat);
+                    }
 
-                ir_system.schedule_interrupt(Interrupt::VBlank);
+                    ir_system.schedule_interrupt(Interrupt::VBlank);
+                }
+                Mode::HBlank if self.reg.lcds.h_blank_interrupt() => {
+                    ir_system.schedule_interrupt(Interrupt::LcdStat)
+                }
+                _ => (),
             }
-            Mode::HBlank if self.reg.lcds.h_blank_interrupt() => {
-                ir_system.schedule_interrupt(Interrupt::LcdStat)
-            }
-            _ => (),
         }
+
+        self.reg.lcds.set_mode(mode);
     }
 }

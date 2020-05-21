@@ -1,5 +1,6 @@
 use super::Mode;
 use crate::maboy::util::BitOps;
+use num_enum::UnsafeFromPrimitive;
 
 #[derive(Copy, Clone)]
 pub struct LCDS(u8);
@@ -34,16 +35,23 @@ impl LCDS {
         self.0
     }
 
-    pub(super) fn set_mode(&mut self, mode: Mode) {
+    pub(super) fn set_mode(&mut self, ppu_mode: Mode) {
         let mode_mask = 0b_1111_1100;
 
-        match mode {
+        match ppu_mode {
             Mode::LCDOff => self.0 &= 0b_1111_1000,
-            Mode::HBlank => self.0 &= mode_mask,
-            Mode::VBlank => self.0 = (self.0 & mode_mask) + 1,
-            Mode::OAMSearch => self.0 = (self.0 & mode_mask) + 2,
-            Mode::PixelTransfer => self.0 = (self.0 & mode_mask) + 3,
+            other => self.0 = (self.0 & mode_mask) + other as u8,
         }
+    }
+
+    pub fn any_conditions_met(&self) -> bool {
+        (self.ly_coincidence_interrupt() && self.0.bit(2))
+            || match unsafe { Mode::from_unchecked(self.0 & 0b11) } {
+                Mode::OAMSearch => self.oam_search_interrupt(),
+                Mode::VBlank => self.v_blank_interrupt(),
+                Mode::HBlank => self.h_blank_interrupt(),
+                _ => false,
+            }
     }
 
     pub fn set_lyc_equals_ly(&mut self, are_equal: bool) {
