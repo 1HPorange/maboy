@@ -13,6 +13,7 @@ pub struct Timer {
     tima_freq: TimaFrequency,
     /// 0 when off, 0xffff when on
     tima_enabled: u16,
+    tima_reload_state: TimaReloadState,
 }
 
 const TAC_WRITE_MASK: u8 = 0b111;
@@ -27,6 +28,12 @@ enum TimaFrequency {
     F11 = 0b00_1000_0000,
 }
 
+enum TimaReloadState {
+    NotReloading,
+    InReload,
+    AfterReload,
+}
+
 impl Timer {
     pub fn new() -> Timer {
         Timer {
@@ -36,12 +43,21 @@ impl Timer {
             tac_reg: !TAC_WRITE_MASK,
             tima_freq: TimaFrequency::F00,
             tima_enabled: 0,
+            tima_reload_state: TimaReloadState::NotReloading,
         }
     }
 
     pub fn advance_mcycle(&mut self, ir_system: &mut InterruptSystem) {
         let old_div = self.div_reg;
         self.div_reg = self.div_reg.wrapping_add(4);
+
+        if let TimaReloadState::InReload = self.tima_reload_state {
+            self.tima_reg = self.tma_reg;
+            ir_system.schedule_interrupt(Interrupt::Timer);
+            self.tima_reload_state = TimaReloadState::AfterReload;
+        } else {
+            self.tima_reload_state = TimaReloadState::NotReloading;
+        }
 
         self.update_tima(ir_system, old_div, self.div_reg);
     }
@@ -59,7 +75,14 @@ impl Timer {
         match reg {
             TimerReg::DIV => self.div_reg = 0,
             TimerReg::TIMA => self.tima_reg = val, // Investigate
-            TimerReg::TMA => self.tma_reg = val,
+            TimerReg::TMA => {
+                self.tma_reg = val;
+
+                if let TimaReloadState::AfterReload = self.tima_reload_state {
+                    self.tima_reg = val;
+                    self.tima_reload_state = TimaReloadState::NotReloading;
+                }
+            }
             TimerReg::TAC => self.write_tac(val),
         }
     }
@@ -73,8 +96,8 @@ impl Timer {
             if let Some(tima) = self.tima_reg.checked_add(1) {
                 self.tima_reg = tima;
             } else {
-                self.tima_reg = self.tma_reg;
-                ir_system.schedule_interrupt(Interrupt::Timer);
+                self.tima_reg = 0;
+                self.tima_reload_state = TimaReloadState::InReload;
             }
         }
     }
