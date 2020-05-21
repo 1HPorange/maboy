@@ -93,7 +93,9 @@ impl<C: CartridgeMem> Board<C> {
             Unusable => (), // Writes to here are ignored by DMG systems
             IO(IOReg::P1) => self.joypad.write_p1(val),
             IO(IOReg::Serial(serial_reg)) => self.serial_port.write_reg(serial_reg, val),
-            IO(IOReg::Timer(timer_reg)) => self.timer.write_reg(timer_reg, val),
+            IO(IOReg::Timer(timer_reg)) => {
+                self.timer.write_reg(&mut self.ir_system, timer_reg, val)
+            }
             IO(IOReg::Ppu(ppu_reg)) => self.ppu.write_reg(&mut self.ir_system, ppu_reg, val),
             IO(IOReg::OamDma) => self.oam_dma.write_ff46(val),
             IO(IOReg::BootRomDisable) => self.mem.write_ff50(val),

@@ -74,6 +74,7 @@ impl CPU {
             }
             _ => {
                 let instr = self.prefetch(board);
+
                 self.execute(board, instr);
             }
         }
