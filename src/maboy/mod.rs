@@ -2,6 +2,7 @@ mod address;
 mod board;
 mod cartridge;
 mod cpu;
+mod debugger;
 mod interrupt_system;
 mod joypad;
 mod memory;
@@ -17,6 +18,10 @@ use memory::{InternalMem, Memory};
 pub use cartridge::{Cartridge, CartridgeMem, CartridgeVariant};
 pub use joypad::Buttons;
 pub use ppu::{MemPixel, VideoFrameStatus};
+
+pub mod debug {
+    pub use super::debugger::*;
+}
 
 pub struct Emulator<C: CartridgeMem> {
     cpu: CPU,

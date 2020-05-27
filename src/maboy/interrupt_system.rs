@@ -1,6 +1,6 @@
 use super::util::BitOps;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(u8)]
 pub enum Interrupt {
     VBlank = 1 << 0,

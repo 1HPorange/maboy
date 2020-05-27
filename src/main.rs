@@ -2,6 +2,7 @@ mod maboy;
 mod maboy_windows;
 // mod maboy_old;
 
+use maboy::debug::*;
 use maboy::*;
 use maboy_windows::*;
 use std::cell::RefCell;
@@ -40,6 +41,18 @@ fn main() {
         CartridgeVariant::MBC1UnbankedRamBat(c) => run_with_savegame(c, command_line_args.next())
             .expect("Failed to load or store savegame"),
     };
+}
+
+#[cfg(debug_assertions)]
+fn debugger() -> impl Debugger {
+    let mut dbg = CpuDebugger::new();
+    dbg.breakpoints.push(BreakPoint(0x0100));
+    dbg
+}
+
+#[cfg(not(debug_assertions))]
+fn debugger() -> impl Debugger {
+    NoDebugger
 }
 
 fn run_emulation<C: CartridgeMem>(cartridge: C) {

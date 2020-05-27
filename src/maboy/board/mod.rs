@@ -39,10 +39,10 @@ impl<C: CartridgeMem> Board<C> {
         OamDma::advance_mcycle(self);
     }
 
-    /// Necessary for implementing OAM DMA. Doesn't consume any cycles.
-    /// This method should never be public to avoid other components
-    /// accidentally reading memory "for free".
-    fn read8_instant(&self, addr: Addr) -> u8 {
+    /// Necessary for implementing OAM DMA. Doesn't consume any cycles. Take care not to call this
+    /// from the CPU module unless you really know what you are doing, otherwise you could screw
+    /// up internal timing magic.
+    pub fn read8_instant(&self, addr: Addr) -> u8 {
         use Addr::*;
 
         match addr {

@@ -7,9 +7,10 @@ use super::board::Board;
 use super::cartridge::CartridgeMem;
 use super::interrupt_system::Interrupt;
 use execute::*;
-use instruction::{ByteInstr, CBByteInstr};
 use operands::{HighRamOperand, HlOperand, Imm8, ImmAddr};
-use registers::{Flags, Registers, R16, R8};
+
+pub use instruction::{ByteInstr, CBByteInstr};
+pub use registers::{Flags, Registers, R16, R8};
 
 // TODO: Pop AF forces lower 4 bits to be zero, no matter what is popped!
 // TODO: OAM DMA Takes the same to in both double and single speed mode!
@@ -18,24 +19,24 @@ use registers::{Flags, Registers, R16, R8};
 
 pub struct CPU {
     /// Shared memory for all 8 and 16 bit registers, including SP
-    reg: Registers,
+    pub reg: Registers,
 
     /// Interrupt Master Enable: Dictates whether the CPU jumps to one of
     /// the corresponding interrupt routines and clears the interrupt
     /// request (true), or if it ignores the interrupts (false). Note that
     /// HALT and STOP instructions can still be interrupted even when IME
     /// is false, but the jump to the interrupt routine is not performed.
-    ime: bool,
+    pub ime: bool,
 
     /// The special HALT and STOP instructions can suspend CPU operation
     /// until an interrupt occurs. They also have minor timing
     /// implications and provide opportunity for power savings.
-    halt_state: HaltState,
+    pub halt_state: HaltState,
 }
 
 // TODO: Respect these states!
 #[derive(Debug)]
-enum HaltState {
+pub enum HaltState {
     Running,
 
     /// Reached after encountering a HALT instruction
@@ -74,7 +75,6 @@ impl CPU {
             }
             _ => {
                 let instr = self.prefetch(board);
-
                 self.execute(board, instr);
             }
         }
@@ -102,6 +102,7 @@ impl CPU {
 
         self.ime = false;
 
+        // TODO: Make this stuff prettier... I mean we have IRSystem...
         // Clear the interrupt request in the IF register
         board.write_if_instant(board.read_if_instant() & !(interrupt as u8));
 

@@ -1,1 +1,18 @@
-pub struct DebugWindow {}
+mod cpu_debugger;
+mod dbg_instr;
+
+use super::cartridge::CartridgeMem;
+use super::{board::Board, cpu::CPU};
+
+pub use cpu_debugger::{BreakPoint, CpuDebugger};
+
+// This should probably be forced to store DBG events, which other components can just throw
+pub trait Debugger {
+    fn update<C: CartridgeMem>(&mut self, cpu: &mut CPU, board: &mut Board<C>);
+}
+
+pub struct NoDebugger;
+
+impl Debugger for NoDebugger {
+    fn update<C: CartridgeMem>(&mut self, cpu: &mut CPU, board: &mut Board<C>) {}
+}

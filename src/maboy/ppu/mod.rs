@@ -145,10 +145,11 @@ impl PPU {
                     self.reg.lcds.set_lyc_equals_ly(false);
                 }
                 1 => {
+                    ir_system.schedule_interrupt(Interrupt::VBlank);
+                    self.update_lyc_equals_ly(ir_system, 144);
                     // TODO: VBLANK IR isn't triggered when IF is manually written to this cycle... JESUS
                     // Actually, this might already happen... hmmm
                     self.update_mode(ir_system, Mode::VBlank);
-                    self.update_lyc_equals_ly(ir_system, 144);
                 }
                 _ => (),
             },
@@ -345,8 +346,6 @@ impl PPU {
                     if self.reg.lcds.v_blank_interrupt() {
                         ir_system.schedule_interrupt(Interrupt::LcdStat);
                     }
-
-                    ir_system.schedule_interrupt(Interrupt::VBlank);
                 }
                 Mode::HBlank if self.reg.lcds.h_blank_interrupt() => {
                     ir_system.schedule_interrupt(Interrupt::LcdStat)
