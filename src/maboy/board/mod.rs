@@ -106,6 +106,13 @@ impl<C: CartridgeMem> Board<C> {
         }
     }
 
+    pub fn read16_instant(&self, addr: u16) -> u16 {
+        u16::from_le_bytes([
+            self.read8_instant(Addr::from(addr)),
+            self.read8_instant(Addr::from(addr.wrapping_add(1))),
+        ])
+    }
+
     pub fn read16(&mut self, addr: u16) -> u16 {
         u16::from_le_bytes([self.read8(addr), self.read8(addr.wrapping_add(1))])
     }

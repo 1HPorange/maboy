@@ -18,6 +18,7 @@ const UP_BUTTON_KEY: KeyboardKey = KeyboardKey::W;
 const RIGHT_BUTTON_KEY: KeyboardKey = KeyboardKey::D;
 const DOWN_BUTTON_KEY: KeyboardKey = KeyboardKey::S;
 const LEFT_BUTTON_KEY: KeyboardKey = KeyboardKey::A;
+const DEBUG_KEY: KeyboardKey = KeyboardKey::G;
 
 fn main() {
     env_logger::init();
@@ -45,9 +46,7 @@ fn main() {
 
 #[cfg(debug_assertions)]
 fn debugger() -> impl Debugger {
-    let mut dbg = CpuDebugger::new();
-    dbg.breakpoints.push(BreakPoint(0x0100));
-    dbg
+    CpuDebugger::new()
 }
 
 #[cfg(not(debug_assertions))]
@@ -56,7 +55,8 @@ fn debugger() -> impl Debugger {
 }
 
 fn run_emulation<C: CartridgeMem>(cartridge: C) {
-    let mut emu = Emulator::new(cartridge);
+    let debugger = debugger();
+    let mut emu = Emulator::new(cartridge, debugger);
 
     // Initialize input system
     let window_input = Rc::new(RefCell::new(WindowInput::from_watched_keys(&[
@@ -68,12 +68,13 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
         RIGHT_BUTTON_KEY,
         DOWN_BUTTON_KEY,
         LEFT_BUTTON_KEY,
+        DEBUG_KEY,
     ])));
 
     let gamepad_input = GamePadInput::find_gamepad();
 
     // Initialize Window
-    let mut window_factory = WindowFactory::new();
+    let window_factory = WindowFactory::new();
 
     let game_window = {
         let window_input = Rc::clone(&window_input);
@@ -115,35 +116,33 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
     loop {
         emu.emulate_step();
 
-        match emu.query_video_frame_status() {
+        let perform_os_update = match emu.query_video_frame_status() {
             // TODO: Think about this frequency
-            VideoFrameStatus::NotReady => {
-                if last_os_update.elapsed() > Duration::from_millis(20) {
-                    if !os_update(&mut emu, &window_factory, &window_input, &gamepad_input) {
-                        break;
-                    }
-                    last_os_update = Instant::now();
-                }
-            }
+            VideoFrameStatus::NotReady => last_os_update.elapsed() > Duration::from_millis(20),
             VideoFrameStatus::Ready(frame_data) => {
                 frame.copy_from_slice(frame_data);
                 present_frame(frame, &mut os_timing);
                 frame = gfx_window.next_frame();
 
-                if !os_update(&mut emu, &window_factory, &window_input, &gamepad_input) {
-                    break;
-                }
-                last_os_update = Instant::now();
+                true
             }
             VideoFrameStatus::LcdTurnedOff => {
                 frame.clear(&[0.0, 0.0, 0.0, 1.0]);
                 present_frame(frame, &mut os_timing);
                 frame = gfx_window.next_frame();
 
-                if !os_update(&mut emu, &window_factory, &window_input, &gamepad_input) {
-                    break;
-                }
-                last_os_update = Instant::now();
+                true
+            }
+        };
+
+        if perform_os_update {
+            if !os_update(&mut emu, &window_factory, &window_input, &gamepad_input) {
+                break;
+            }
+            last_os_update = Instant::now();
+
+            if window_input.borrow().is_pressed(DEBUG_KEY) {
+                emu.debugger().schedule_break();
             }
         }
     }
@@ -180,8 +179,8 @@ fn present_frame(frame: GfxFrame, os_timing: &mut OsTiming) {
     frame.present(false).expect("Could not present frame");
 }
 
-fn os_update<C: CartridgeMem>(
-    emu: &mut Emulator<C>,
+fn os_update<C: CartridgeMem, D: Debugger>(
+    emu: &mut Emulator<C, D>,
     window_factory: &WindowFactory,
     window_input: &RefCell<WindowInput>,
     gamepad_input: &Option<GamePadInput>,

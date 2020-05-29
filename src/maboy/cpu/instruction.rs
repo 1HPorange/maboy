@@ -1,6 +1,6 @@
 // TODO: Number "NOT_USED" instructions correctly... I'm an idiot
 #[allow(non_camel_case_types, dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum ByteInstr {
     NOP,
@@ -263,6 +263,7 @@ pub enum ByteInstr {
 
 /// Preceeded by a 0xCB instruction
 #[allow(non_camel_case_types, dead_code)]
+#[derive(Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum CBByteInstr {
     RLC_B,

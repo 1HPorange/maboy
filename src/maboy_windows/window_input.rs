@@ -79,4 +79,8 @@ impl WindowInput {
             // Safe because `watched_keys` only contains `KeyboardKey`
             .map(|(k, _)| unsafe { std::mem::transmute(*k) })
     }
+
+    pub fn is_pressed(&self, key: KeyboardKey) -> bool {
+        *self.watched_keys.get(&(key as i32)).unwrap_or(&false)
+    }
 }

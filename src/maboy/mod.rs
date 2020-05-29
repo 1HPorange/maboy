@@ -16,29 +16,37 @@ use cpu::CPU;
 use memory::{InternalMem, Memory};
 
 pub use cartridge::{Cartridge, CartridgeMem, CartridgeVariant};
+pub use debugger::{Debugger, NoDebugger};
 pub use joypad::Buttons;
 pub use ppu::{MemPixel, VideoFrameStatus};
 
 pub mod debug {
-    pub use super::debugger::*;
+    pub use super::debugger::{BreakPoint, CpuDebugger};
 }
 
-pub struct Emulator<C: CartridgeMem> {
+pub struct Emulator<C: CartridgeMem, D: Debugger> {
     cpu: CPU,
     board: Board<C>,
+    debugger: D,
 }
 
-impl<C: CartridgeMem> Emulator<C> {
-    pub fn new(cartridge_mem: C) -> Emulator<C> {
+impl<C: CartridgeMem, D: Debugger> Emulator<C, D> {
+    pub fn new(cartridge_mem: C, debugger: D) -> Emulator<C, D> {
         let mem = Memory::new(InternalMem::new(), cartridge_mem);
 
         Emulator {
             cpu: CPU::new(),
             board: Board::new(mem),
+            debugger,
         }
     }
 
+    pub fn debugger(&mut self) -> &mut D {
+        &mut self.debugger
+    }
+
     pub fn emulate_step(&mut self) {
+        self.debugger.update(&mut self.cpu, &mut self.board);
         self.cpu.step_instr(&mut self.board);
     }
 

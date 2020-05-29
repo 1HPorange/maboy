@@ -293,14 +293,12 @@ impl ByteInstr {
         }
     }
 
-    pub(super) fn is__control_flow_change(&self) -> bool {
+    pub(super) fn is_control_flow_change(&self) -> bool {
         match self {
             // Unconditional
             ByteInstr::JR_r8 => true,
             ByteInstr::JP_a16 => true,
             ByteInstr::JP_xHLx => true,
-            ByteInstr::RET => true,
-            ByteInstr::RETI => true,
             ByteInstr::CALL_a16 => true,
             ByteInstr::RST_00H => true,
             ByteInstr::RST_08H => true,
@@ -310,6 +308,10 @@ impl ByteInstr {
             ByteInstr::RST_28H => true,
             ByteInstr::RST_30H => true,
             ByteInstr::RST_38H => true,
+
+            // Conditional on stack pointer
+            ByteInstr::RET => true,
+            ByteInstr::RETI => true,
 
             // Conditional
             ByteInstr::JR_NZ_r8 => true,
