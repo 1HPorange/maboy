@@ -5,6 +5,7 @@ use crate::maboy::{
     board::Board,
     cpu::{ByteInstr, CBByteInstr, Registers, CPU, R16, R8},
 };
+use console::{style, Style, StyledObject, Term};
 
 #[derive(Copy, Clone)]
 pub struct BreakPoint(pub u16);
@@ -12,45 +13,45 @@ pub struct BreakPoint(pub u16);
 pub struct CpuDebugger {
     pub breakpoints: Vec<BreakPoint>,
     break_in: Option<u16>,
+    last_instr_pc: u16,
 }
 
 impl Debugger for CpuDebugger {
     fn update<C: CartridgeMem>(&mut self, cpu: &mut CPU, board: &mut Board<C>) {
         self.update(cpu, board);
+        self.last_instr_pc = cpu.reg.pc();
     }
 
     fn schedule_break(&mut self) {
-        self.schedule_break()
+        self.break_in = Some(0);
     }
 }
-
-use console::{style, StyledObject, Term};
 
 impl CpuDebugger {
     pub fn new() -> Self {
         Self {
             breakpoints: Vec::new(),
             break_in: None,
+            last_instr_pc: 0,
         }
-    }
-
-    pub fn schedule_break(&mut self) {
-        self.break_in = Some(0);
     }
 
     fn run_debug_cli<C: CartridgeMem>(&mut self, cpu: &mut CPU, board: &mut Board<C>) {
         let term = Term::stdout();
 
+        // TODO: Write this all using a single mutable String, to which we push lines
         loop {
             term.clear_screen().unwrap();
 
             term.write_line("CPU").unwrap();
             print_cpu_registers(&term, &cpu.reg);
 
-            term.write_line("Mem").unwrap();
-            print_instr(&term, board, cpu.reg.pc(), &self.breakpoints, 30);
+            term.write_line("\nMem").unwrap();
+            self.print_last_instr(&term);
+            print_next_instr(&term, board, cpu.reg.pc(), &self.breakpoints, 30);
 
-            term.read_line_initial_text("\n:").unwrap();
+            let user_command = term.read_line_initial_text("\n:").unwrap();
+
             break;
         }
 
@@ -81,6 +82,11 @@ impl CpuDebugger {
                 break;
             }
         }
+    }
+
+    fn print_last_instr(&self, term: &Term) {
+        let line = format!(" [{:#06X}] Previous Instruction", self.last_instr_pc);
+        term.write_line(&style(line).cyan().to_string()).unwrap();
     }
 }
 
@@ -117,7 +123,7 @@ fn print_cpu_registers(term: &Term, reg: &Registers) {
     .unwrap();
 }
 
-fn print_instr<C: CartridgeMem>(
+fn print_next_instr<C: CartridgeMem>(
     term: &Term,
     board: &Board<C>,
     mut pc: u16,
