@@ -1,3 +1,5 @@
+// TODO: Become lib
+
 mod gamepad_input;
 mod gfx;
 mod hresult_error;

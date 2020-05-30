@@ -20,6 +20,26 @@ const DOWN_BUTTON_KEY: KeyboardKey = KeyboardKey::S;
 const LEFT_BUTTON_KEY: KeyboardKey = KeyboardKey::A;
 const DEBUG_KEY: KeyboardKey = KeyboardKey::G;
 
+#[cfg(debug_assertions)]
+fn cpu_logger() -> impl DbgEvtSrc<CpuEvt> {
+    DbgEvtLogger::new()
+}
+
+#[cfg(not(debug_assertions))]
+fn cpu_logger() -> impl DbgEvtSrc<CpuEvt> {
+    NoDbgLogger
+}
+
+#[cfg(debug_assertions)]
+fn ppu_logger() -> impl DbgEvtSrc<PpuEvt> {
+    DbgEvtLogger::new()
+}
+
+#[cfg(not(debug_assertions))]
+fn ppu_logger() -> impl DbgEvtSrc<PpuEvt> {
+    NoDbgLogger
+}
+
 fn main() {
     env_logger::init();
 
@@ -44,19 +64,8 @@ fn main() {
     };
 }
 
-#[cfg(debug_assertions)]
-fn debugger() -> impl Debugger {
-    CpuDebugger::new()
-}
-
-#[cfg(not(debug_assertions))]
-fn debugger() -> impl Debugger {
-    NoDebugger
-}
-
 fn run_emulation<C: CartridgeMem>(cartridge: C) {
-    let debugger = debugger();
-    let mut emu = Emulator::new(cartridge, debugger);
+    let mut emu = Emulator::new(cartridge, cpu_logger(), ppu_logger());
 
     // Initialize input system
     let window_input = Rc::new(RefCell::new(WindowInput::from_watched_keys(&[
@@ -142,7 +151,7 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
             last_os_update = Instant::now();
 
             if window_input.borrow().is_pressed(DEBUG_KEY) {
-                emu.debugger().schedule_break();
+                todo!("Start Debugger!")
             }
         }
     }
@@ -179,8 +188,9 @@ fn present_frame(frame: GfxFrame, os_timing: &mut OsTiming) {
     frame.present(false).expect("Could not present frame");
 }
 
-fn os_update<C: CartridgeMem, D: Debugger>(
-    emu: &mut Emulator<C, D>,
+// TODO: Make this signature nice by lower trait requirements for Emulator function calls
+fn os_update<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>(
+    emu: &mut Emulator<CMem, CpuDbg, PpuDbg>,
     window_factory: &WindowFactory,
     window_input: &RefCell<WindowInput>,
     gamepad_input: &Option<GamePadInput>,

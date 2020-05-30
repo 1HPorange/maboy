@@ -59,8 +59,8 @@ impl CPU {
         }
     }
 
-    pub fn step_instr<C: CartridgeMem>(&mut self, board: &mut Board<C>) {
-        match board.query_interrupt_request_instant() {
+    pub fn step_instr<B: Board>(&mut self, board: &mut B) {
+        match board.ir_system().query_interrupt_request() {
             Some(interrupt) if self.ime => self.jmp_to_interrupt_handler(board, interrupt),
             // Interrupt flags are ONLY cleared if we take the jump, so we don't
             // need to clear them that in any of the other match arms
@@ -80,31 +80,29 @@ impl CPU {
         }
     }
 
-    fn read8i<C: CartridgeMem>(&mut self, board: &mut Board<C>) -> u8 {
+    fn read8i<B: Board>(&mut self, board: &mut B) -> u8 {
         let result = board.read8(self.reg.r16(R16::PC));
         *self.reg.r16_mut(R16::PC) = self.reg.r16(R16::PC).wrapping_add(1);
         result
     }
 
-    fn read16i<C: CartridgeMem>(&mut self, board: &mut Board<C>) -> u16 {
+    fn read16i<B: Board>(&mut self, board: &mut B) -> u16 {
         let result = board.read16(self.reg.r16(R16::PC));
         *self.reg.r16_mut(R16::PC) = self.reg.r16(R16::PC).wrapping_add(2);
         result
     }
 
-    fn jmp_to_interrupt_handler<C: CartridgeMem>(
-        &mut self,
-        board: &mut Board<C>,
-        interrupt: Interrupt,
-    ) {
+    fn jmp_to_interrupt_handler<B: Board>(&mut self, board: &mut B, interrupt: Interrupt) {
         // TODO: Add additional 4 clock wait if waking from HALT (and STOP???)
         // TODO: Recheck the timing in this function
 
         self.ime = false;
 
         // TODO: Make this stuff prettier... I mean we have IRSystem...
+        // TODO: Move this code into IRSystem
         // Clear the interrupt request in the IF register
-        board.write_if_instant(board.read_if_instant() & !(interrupt as u8));
+        let old_if = board.ir_system().read_if();
+        board.ir_system().write_if(old_if & !(interrupt as u8));
 
         // Timing stuff... The entire thing should take 20 cycles / 5 MCycles
         board.advance_mcycle(); // 1
@@ -132,15 +130,15 @@ impl CPU {
         self.ime = ime;
     }
 
-    fn prefetch<C: CartridgeMem>(&mut self, board: &mut Board<C>) -> ByteInstr {
+    fn prefetch<B: Board>(&mut self, board: &mut B) -> ByteInstr {
         unsafe { std::mem::transmute(self.read8i(board)) }
     }
 
-    fn fetch_cb<C: CartridgeMem>(&mut self, board: &mut Board<C>) -> CBByteInstr {
+    fn fetch_cb<B: Board>(&mut self, board: &mut B) -> CBByteInstr {
         unsafe { std::mem::transmute(self.read8i(board)) }
     }
 
-    fn execute<C: CartridgeMem>(&mut self, board: &mut Board<C>, instr: ByteInstr) {
+    fn execute<B: Board>(&mut self, board: &mut B, instr: ByteInstr) {
         use ByteInstr::*;
         use HlOperand::*;
         use R16::*;
@@ -406,7 +404,7 @@ impl CPU {
         }
     }
 
-    fn fetch_execute_cb<C: CartridgeMem>(&mut self, board: &mut Board<C>) {
+    fn fetch_execute_cb<B: Board>(&mut self, board: &mut B) {
         use CBByteInstr::*;
         use R16::HL;
         use R8::*;

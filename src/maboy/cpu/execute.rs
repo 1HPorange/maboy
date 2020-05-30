@@ -5,27 +5,27 @@ use crate::maboy::board::Board;
 use crate::maboy::cartridge::CartridgeMem;
 use crate::maboy::util::BitOps;
 
-pub fn ld8<C: CartridgeMem, D: Dst8, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, dst: D, src: S) {
+pub fn ld8<B: Board, D: Dst8, S: Src8>(cpu: &mut CPU, board: &mut B, dst: D, src: S) {
     let val = src.read(cpu, board);
     dst.write(cpu, board, val);
 }
 
-pub fn ld_rr_d16<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, rr: R16) {
+pub fn ld_rr_d16<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
     *cpu.reg.r16_mut(rr) = cpu.read16i(board);
 }
 
-pub fn ld_a16_sp<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>) {
+pub fn ld_a16_sp<B: Board>(cpu: &mut CPU, board: &mut B) {
     let addr = cpu.read16i(board);
     board.write16(addr, cpu.reg.sp());
 }
 
-pub fn ld_sp_hl<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>) {
+pub fn ld_sp_hl<B: Board>(cpu: &mut CPU, board: &mut B) {
     *cpu.reg.sp_mut() = cpu.reg.hl();
 
     board.advance_mcycle();
 }
 
-pub fn ld_hl_sp_r8<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>) {
+pub fn ld_hl_sp_r8<B: Board>(cpu: &mut CPU, board: &mut B) {
     let offset = unsafe { std::mem::transmute::<u8, i8>(cpu.read8i(board)) } as i32;
     let sp = cpu.reg.sp() as i32;
 
@@ -105,7 +105,7 @@ pub fn ccf(cpu: &mut CPU) {
     cpu.reg.flags_mut().toggle(Flags::C);
 }
 
-pub fn jr_cond<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, cond: bool) {
+pub fn jr_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
     let offset: i8 = unsafe { std::mem::transmute(cpu.read8i(board)) };
 
     if cond {
@@ -116,7 +116,7 @@ pub fn jr_cond<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, cond: bool)
     }
 }
 
-pub fn jp_cond<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, cond: bool) {
+pub fn jp_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
     let target = cpu.read16i(board);
 
     if cond {
@@ -130,31 +130,31 @@ pub fn jp_hl(cpu: &mut CPU) {
     *cpu.reg.pc_mut() = cpu.reg.hl();
 }
 
-pub fn pop<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, rr: R16) {
+pub fn pop<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
     *cpu.reg.r16_mut(rr) = board.read16(cpu.reg.sp());
     *cpu.reg.sp_mut() = cpu.reg.sp().wrapping_add(2);
 }
 
-pub fn pop_af<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>) {
+pub fn pop_af<B: Board>(cpu: &mut CPU, board: &mut B) {
     // The lower four bits of the flag register will always be 0, no matter
     // what you pop into them
     *cpu.reg.r16_mut(R16::AF) = board.read16(cpu.reg.sp()) & 0xFFF0;
     *cpu.reg.sp_mut() = cpu.reg.sp().wrapping_add(2);
 }
 
-pub fn push<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, rr: R16) {
+pub fn push<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
     *cpu.reg.sp_mut() = cpu.reg.sp().wrapping_sub(2);
     board.advance_mcycle();
     board.write16(cpu.reg.r16(R16::SP), cpu.reg.r16(rr));
 }
 
-pub fn rst<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, target: u16) {
+pub fn rst<B: Board>(cpu: &mut CPU, board: &mut B, target: u16) {
     push(cpu, board, R16::PC);
     *cpu.reg.pc_mut() = target;
 }
 
 /// Due to timing differences, this function CANNOT be expressed as ret_cond(..., true)!!!
-pub fn ret<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, enable_ime: bool) {
+pub fn ret<B: Board>(cpu: &mut CPU, board: &mut B, enable_ime: bool) {
     pop(cpu, board, R16::PC);
 
     cpu.ime |= enable_ime;
@@ -162,7 +162,7 @@ pub fn ret<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, enable_ime: boo
     board.advance_mcycle();
 }
 
-pub fn ret_cond<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, cond: bool) {
+pub fn ret_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
     board.advance_mcycle();
 
     if cond {
@@ -170,7 +170,7 @@ pub fn ret_cond<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, cond: bool
     }
 }
 
-pub fn call_cond<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, cond: bool) {
+pub fn call_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
     let target = cpu.read16i(board);
 
     if cond {
@@ -179,7 +179,7 @@ pub fn call_cond<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, cond: boo
     }
 }
 
-pub fn add_hl_rr<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, rr: R16) {
+pub fn add_hl_rr<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
     let old = cpu.reg.hl();
     let addend = cpu.reg.r16(rr);
 
@@ -196,7 +196,7 @@ pub fn add_hl_rr<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, rr: R16) 
     board.advance_mcycle();
 }
 
-pub fn add_sp_r8<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>) {
+pub fn add_sp_r8<B: Board>(cpu: &mut CPU, board: &mut B) {
     let offset = unsafe { std::mem::transmute::<u8, i8>(cpu.read8i(board)) } as i32;
     let old = cpu.reg.sp() as i32;
 
@@ -214,21 +214,17 @@ pub fn add_sp_r8<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>) {
     board.advance_mcycle();
 }
 
-pub fn inc_rr<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, rr: R16) {
+pub fn inc_rr<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
     *cpu.reg.r16_mut(rr) = cpu.reg.r16(rr).wrapping_add(1);
     board.advance_mcycle();
 }
 
-pub fn dec_rr<C: CartridgeMem>(cpu: &mut CPU, board: &mut Board<C>, rr: R16) {
+pub fn dec_rr<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
     *cpu.reg.r16_mut(rr) = cpu.reg.r16(rr).wrapping_sub(1);
     board.advance_mcycle();
 }
 
-pub fn inc8<C: CartridgeMem, T: Src8 + Dst8 + Copy>(
-    cpu: &mut CPU,
-    board: &mut Board<C>,
-    target: T,
-) {
+pub fn inc8<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     let new = old.wrapping_add(1);
 
@@ -239,11 +235,7 @@ pub fn inc8<C: CartridgeMem, T: Src8 + Dst8 + Copy>(
     cpu.reg.flags_mut().set(Flags::H, (old & 0x0f) == 0x0f);
 }
 
-pub fn dec8<C: CartridgeMem, T: Src8 + Dst8 + Copy>(
-    cpu: &mut CPU,
-    board: &mut Board<C>,
-    target: T,
-) {
+pub fn dec8<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     let new = old.wrapping_sub(1);
 
@@ -254,7 +246,7 @@ pub fn dec8<C: CartridgeMem, T: Src8 + Dst8 + Copy>(
     cpu.reg.flags_mut().set(Flags::H, (new & 0x0f) == 0x0f);
 }
 
-pub fn add8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S) {
+pub fn add8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
     let old = cpu.reg.r8(R8::A);
     let addend = src.read(cpu, board);
     let (new, carry) = old.overflowing_add(addend);
@@ -269,7 +261,7 @@ pub fn add8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: 
     cpu.reg.flags_mut().set(Flags::C, carry);
 }
 
-pub fn adc8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S) {
+pub fn adc8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
     let old = cpu.reg.r8(R8::A) as u16;
     let addend = src.read(cpu, board) as u16;
     let carry_val = if cpu.reg.flags().contains(Flags::C) {
@@ -290,11 +282,11 @@ pub fn adc8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: 
     cpu.reg.flags_mut().remove(Flags::N);
 }
 
-pub fn sub8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S) {
+pub fn sub8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
     *cpu.reg.r8_mut(R8::A) = cp8(cpu, board, src);
 }
 
-pub fn sbc8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S) {
+pub fn sbc8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
     // The bit magic gets a bit easier when we convert stuff to i16
     let old = cpu.reg.r8(R8::A) as i16;
     let subtrahend = src.read(cpu, board) as i16;
@@ -316,7 +308,7 @@ pub fn sbc8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: 
     cpu.reg.flags_mut().set(Flags::C, new < 0);
 }
 
-pub fn cp8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S) -> u8 {
+pub fn cp8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) -> u8 {
     let old = cpu.reg.r8(R8::A);
     let subtrahend = src.read(cpu, board);
 
@@ -332,7 +324,7 @@ pub fn cp8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S
     new
 }
 
-pub fn and8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S) {
+pub fn and8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
     let new = cpu.reg.r8(R8::A) & src.read(cpu, board);
 
     *cpu.reg.r8_mut(R8::A) = new;
@@ -342,7 +334,7 @@ pub fn and8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: 
     cpu.reg.flags_mut().insert(Flags::H);
 }
 
-pub fn xor8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S) {
+pub fn xor8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
     let new = cpu.reg.r8(R8::A) ^ src.read(cpu, board);
 
     *cpu.reg.r8_mut(R8::A) = new;
@@ -351,7 +343,7 @@ pub fn xor8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: 
     cpu.reg.flags_mut().remove(Flags::N | Flags::H | Flags::C);
 }
 
-pub fn or8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S) {
+pub fn or8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
     let new = cpu.reg.r8(R8::A) | src.read(cpu, board);
 
     *cpu.reg.r8_mut(R8::A) = new;
@@ -362,7 +354,7 @@ pub fn or8<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, src: S
 
 // CB prefixed Instructions
 
-pub fn rlc<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Board<C>, target: T) {
+pub fn rlc<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     target.write(cpu, board, old.rotate_left(1));
 
@@ -371,7 +363,7 @@ pub fn rlc<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Bo
     cpu.reg.flags_mut().set(Flags::C, old.bit(7));
 }
 
-pub fn rrc<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Board<C>, target: T) {
+pub fn rrc<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     target.write(cpu, board, old.rotate_right(1));
 
@@ -380,7 +372,7 @@ pub fn rrc<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Bo
     cpu.reg.flags_mut().set(Flags::C, old.bit(0))
 }
 
-pub fn rl<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Board<C>, target: T) {
+pub fn rl<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     let new = (old << 1)
         + if cpu.reg.flags().contains(Flags::C) {
@@ -396,7 +388,7 @@ pub fn rl<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Boa
     cpu.reg.flags_mut().set(Flags::C, old.bit(7));
 }
 
-pub fn rr<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Board<C>, target: T) {
+pub fn rr<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     let new = (old >> 1)
         + if cpu.reg.flags().contains(Flags::C) {
@@ -412,7 +404,7 @@ pub fn rr<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Boa
     cpu.reg.flags_mut().set(Flags::C, old.bit(0));
 }
 
-pub fn sla<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Board<C>, target: T) {
+pub fn sla<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     let new = old << 1;
 
@@ -423,7 +415,7 @@ pub fn sla<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Bo
     cpu.reg.flags_mut().set(Flags::C, old.bit(7));
 }
 
-pub fn sra<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Board<C>, target: T) {
+pub fn sra<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     let new = (old >> 1) | (old & 0b_1000_0000);
 
@@ -434,11 +426,7 @@ pub fn sra<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Bo
     cpu.reg.flags_mut().set(Flags::C, old.bit(0));
 }
 
-pub fn swap<C: CartridgeMem, T: Src8 + Dst8 + Copy>(
-    cpu: &mut CPU,
-    board: &mut Board<C>,
-    target: T,
-) {
+pub fn swap<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     target.write(cpu, board, (old >> 4) + (old << 4));
 
@@ -446,7 +434,7 @@ pub fn swap<C: CartridgeMem, T: Src8 + Dst8 + Copy>(
     cpu.reg.flags_mut().remove(Flags::N | Flags::H | Flags::C);
 }
 
-pub fn srl<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Board<C>, target: T) {
+pub fn srl<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     let new = old >> 1;
 
@@ -457,29 +445,19 @@ pub fn srl<C: CartridgeMem, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut Bo
     cpu.reg.flags_mut().set(Flags::C, old.bit(0));
 }
 
-pub fn bit<C: CartridgeMem, S: Src8>(cpu: &mut CPU, board: &mut Board<C>, bit: u8, src: S) {
+pub fn bit<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, bit: u8, src: S) {
     let bit_set = src.read(cpu, board).bit(bit);
     cpu.reg.flags_mut().set(Flags::Z, !bit_set);
     cpu.reg.flags_mut().remove(Flags::N);
     cpu.reg.flags_mut().insert(Flags::H);
 }
 
-pub fn res<C: CartridgeMem, T: Src8 + Dst8 + Copy>(
-    cpu: &mut CPU,
-    board: &mut Board<C>,
-    bit: u8,
-    target: T,
-) {
+pub fn res<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, bit: u8, target: T) {
     let new = target.read(cpu, board).reset_bit(bit);
     target.write(cpu, board, new);
 }
 
-pub fn set<C: CartridgeMem, T: Src8 + Dst8 + Copy>(
-    cpu: &mut CPU,
-    board: &mut Board<C>,
-    bit: u8,
-    target: T,
-) {
+pub fn set<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, bit: u8, target: T) {
     let new = target.read(cpu, board).set_bit(bit);
     target.write(cpu, board, new);
 }

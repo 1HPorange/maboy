@@ -2,6 +2,7 @@ mod oam_dma;
 
 use super::address::{Addr, IOReg, VideoMemAddr};
 use super::cartridge::CartridgeMem;
+use super::debug::{CpuEvt, DbgEvtSrc, PpuEvt};
 use super::interrupt_system::{Interrupt, InterruptSystem};
 use super::joypad::{Buttons, JoyPad};
 use super::memory::Memory;
@@ -10,19 +11,41 @@ use super::serial_port::SerialPort;
 use super::timer::Timer;
 use oam_dma::OamDma;
 
-pub struct Board<C> {
-    mem: Memory<C>,
+pub trait Board {
+    type CMem: CartridgeMem;
+    type CpuDbgEvtSrc: DbgEvtSrc<CpuEvt>;
+    type PpuDbgEvtSrc: DbgEvtSrc<PpuEvt>;
+
+    fn advance_mcycle(&mut self);
+
+    fn read8_instant(&self, addr: Addr) -> u8;
+    fn read8(&mut self, addr: u16) -> u8;
+    fn write8(&mut self, addr: u16, val: u8);
+
+    fn read16_instant(&self, addr: u16) -> u16;
+    fn read16(&mut self, addr: u16) -> u16;
+    fn write16(&mut self, addr: u16, val: u16);
+
+    fn ir_system(&mut self) -> &mut InterruptSystem;
+}
+
+pub struct BoardImpl<CMem, CpuDbg, PpuDbg> {
+    mem: Memory<CMem>,
     ppu: PPU,
-    ir_system: InterruptSystem,
+    pub ir_system: InterruptSystem,
     pub joypad: JoyPad,
     oam_dma: OamDma,
     timer: Timer,
     serial_port: SerialPort,
+    cpu_evt_src: CpuDbg,
+    ppu_evt_src: PpuDbg,
 }
 
-impl<C: CartridgeMem> Board<C> {
-    pub fn new(mem: Memory<C>) -> Board<C> {
-        Board {
+impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>
+    BoardImpl<CMem, CpuDbg, PpuDbg>
+{
+    pub fn new(mem: Memory<CMem>, cpu_evt_src: CpuDbg, ppu_evt_src: PpuDbg) -> Self {
+        Self {
             mem,
             ppu: PPU::new(),
             ir_system: InterruptSystem::new(),
@@ -30,10 +53,38 @@ impl<C: CartridgeMem> Board<C> {
             oam_dma: OamDma::new(),
             timer: Timer::new(),
             serial_port: SerialPort::new(),
+            cpu_evt_src,
+            ppu_evt_src,
         }
     }
 
-    pub fn advance_mcycle(&mut self) {
+    pub fn query_video_frame_status(&mut self) -> VideoFrameStatus {
+        self.ppu.query_frame_status()
+    }
+
+    pub fn notify_buttons_pressed(&mut self, buttons: Buttons) {
+        self.joypad
+            .notify_buttons_pressed(&mut self.ir_system, buttons);
+    }
+
+    pub fn notify_buttons_released(&mut self, buttons: Buttons) {
+        self.joypad.notify_buttons_released(buttons);
+    }
+
+    pub fn notify_buttons_state(&mut self, buttons: Buttons) {
+        self.joypad
+            .notify_buttons_state(&mut self.ir_system, buttons);
+    }
+}
+
+impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>> Board
+    for BoardImpl<CMem, CpuDbg, PpuDbg>
+{
+    type CMem = CMem;
+    type CpuDbgEvtSrc = CpuDbg;
+    type PpuDbgEvtSrc = PpuDbg;
+
+    fn advance_mcycle(&mut self) {
         self.timer.advance_mcycle(&mut self.ir_system);
         self.ppu.advance_mcycle(&mut self.ir_system);
         OamDma::advance_mcycle(self);
@@ -42,7 +93,7 @@ impl<C: CartridgeMem> Board<C> {
     /// Necessary for implementing OAM DMA. Doesn't consume any cycles. Take care not to call this
     /// from the CPU module unless you really know what you are doing, otherwise you could screw
     /// up internal timing magic.
-    pub fn read8_instant(&self, addr: Addr) -> u8 {
+    fn read8_instant(&self, addr: Addr) -> u8 {
         use Addr::*;
 
         match addr {
@@ -70,7 +121,7 @@ impl<C: CartridgeMem> Board<C> {
         }
     }
 
-    pub fn read8(&mut self, addr: u16) -> u8 {
+    fn read8(&mut self, addr: u16) -> u8 {
         let addr = Addr::from(addr);
 
         self.advance_mcycle();
@@ -78,7 +129,7 @@ impl<C: CartridgeMem> Board<C> {
         self.read8_instant(addr)
     }
 
-    pub fn write8(&mut self, addr: u16, val: u8) {
+    fn write8(&mut self, addr: u16, val: u8) {
         use Addr::*;
 
         let addr = Addr::from(addr);
@@ -106,53 +157,23 @@ impl<C: CartridgeMem> Board<C> {
         }
     }
 
-    pub fn read16_instant(&self, addr: u16) -> u16 {
+    fn read16_instant(&self, addr: u16) -> u16 {
         u16::from_le_bytes([
             self.read8_instant(Addr::from(addr)),
             self.read8_instant(Addr::from(addr.wrapping_add(1))),
         ])
     }
 
-    pub fn read16(&mut self, addr: u16) -> u16 {
+    fn read16(&mut self, addr: u16) -> u16 {
         u16::from_le_bytes([self.read8(addr), self.read8(addr.wrapping_add(1))])
     }
 
-    pub fn write16(&mut self, addr: u16, val: u16) {
+    fn write16(&mut self, addr: u16, val: u16) {
         self.write8(addr, (val & 0xff) as u8);
         self.write8(addr.wrapping_add(1), (val >> 8) as u8);
     }
 
-    pub fn query_video_frame_status(&mut self) -> VideoFrameStatus {
-        self.ppu.query_frame_status()
-    }
-
-    pub fn notify_buttons_pressed(&mut self, buttons: Buttons) {
-        self.joypad
-            .notify_buttons_pressed(&mut self.ir_system, buttons);
-    }
-
-    pub fn notify_buttons_released(&mut self, buttons: Buttons) {
-        self.joypad.notify_buttons_released(buttons);
-    }
-
-    pub fn notify_buttons_state(&mut self, buttons: Buttons) {
-        self.joypad
-            .notify_buttons_state(&mut self.ir_system, buttons);
-    }
-
-    // The following methods have to sit on Board because they don't consume
-    // cycles, unlike other memory access operations. The postfix "_instant"
-    // denotes this behaviour.
-
-    pub fn query_interrupt_request_instant(&self) -> Option<Interrupt> {
-        self.ir_system.query_interrupt_request()
-    }
-
-    pub fn read_if_instant(&self) -> u8 {
-        self.ir_system.read_if()
-    }
-
-    pub fn write_if_instant(&mut self, val: u8) {
-        self.ir_system.write_if(val);
+    fn ir_system(&mut self) -> &mut InterruptSystem {
+        &mut self.ir_system
     }
 }
