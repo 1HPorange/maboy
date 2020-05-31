@@ -2,8 +2,7 @@ use super::operands::{Dst8, Src8};
 use super::registers::*;
 use super::CPU;
 use crate::maboy::board::Board;
-use crate::maboy::cartridge::CartridgeMem;
-use crate::maboy::util::BitOps;
+use crate::maboy::{debug::CpuEvt, util::BitOps};
 
 pub fn ld8<B: Board, D: Dst8, S: Src8>(cpu: &mut CPU, board: &mut B, dst: D, src: S) {
     let val = src.read(cpu, board);
@@ -112,7 +111,12 @@ pub fn jr_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
         // TODO: Figure out why the heck this cast works
         *cpu.reg.pc_mut() = cpu.reg.pc().wrapping_add(offset as u16);
 
+        board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.pc()));
+
         board.advance_mcycle();
+    } else {
+        // TODO: Figure out why the heck this cast works
+        board.push_cpu_evt(CpuEvt::SkipJmpTo(cpu.reg.pc().wrapping_add(offset as u16)));
     }
 }
 
@@ -122,12 +126,18 @@ pub fn jp_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
     if cond {
         *cpu.reg.pc_mut() = target;
 
+        board.push_cpu_evt(CpuEvt::TakeJmpTo(target));
+
         board.advance_mcycle();
+    } else {
+        board.push_cpu_evt(CpuEvt::SkipJmpTo(target));
     }
 }
 
-pub fn jp_hl(cpu: &mut CPU) {
+pub fn jp_hl<B: Board>(cpu: &mut CPU, board: &mut B) {
     *cpu.reg.pc_mut() = cpu.reg.hl();
+
+    board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.hl()));
 }
 
 pub fn pop<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
@@ -151,6 +161,8 @@ pub fn push<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
 pub fn rst<B: Board>(cpu: &mut CPU, board: &mut B, target: u16) {
     push(cpu, board, R16::PC);
     *cpu.reg.pc_mut() = target;
+
+    board.push_cpu_evt(CpuEvt::TakeJmpTo(target));
 }
 
 /// Due to timing differences, this function CANNOT be expressed as ret_cond(..., true)!!!
@@ -159,6 +171,8 @@ pub fn ret<B: Board>(cpu: &mut CPU, board: &mut B, enable_ime: bool) {
 
     cpu.ime |= enable_ime;
 
+    board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.pc()));
+
     board.advance_mcycle();
 }
 
@@ -166,7 +180,11 @@ pub fn ret_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
     board.advance_mcycle();
 
     if cond {
+        // This call already pushes the debug event, so no need for us to do that
         ret(cpu, board, false);
+    } else {
+        // It's really important that this is an *instant* read, since it's only a debug thingy
+        board.push_cpu_evt(CpuEvt::SkipJmpTo(board.read16_instant(cpu.reg.sp())));
     }
 }
 
@@ -176,6 +194,10 @@ pub fn call_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
     if cond {
         push(cpu, board, R16::PC);
         *cpu.reg.pc_mut() = target;
+
+        board.push_cpu_evt(CpuEvt::TakeJmpTo(target));
+    } else {
+        board.push_cpu_evt(CpuEvt::SkipJmpTo(target));
     }
 }
 

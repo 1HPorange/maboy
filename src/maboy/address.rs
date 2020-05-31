@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 
+#[derive(Copy, Clone)]
 pub enum Addr {
     Mem(MemAddr),
     VideoMem(VideoMemAddr),
@@ -8,6 +9,7 @@ pub enum Addr {
     IE,        // 0xFFFF
 }
 
+#[derive(Copy, Clone)]
 pub enum MemAddr {
     CROM(CRomAddr), // 0x0000 - 0x7FFF
     CRAM(CRamAddr), // 0xA000 - 0xBFFF
@@ -16,13 +18,16 @@ pub enum MemAddr {
     HRAM(u16),      // 0xFF80 - 0xFFFE
 }
 
+#[derive(Copy, Clone)]
 pub enum CRomAddr {
     CROM0(u16), // 0x0000 - 0x3FFF
     CROMn(u16), // 0x4000 - 0x7FFF
 }
 
+#[derive(Copy, Clone)]
 pub struct CRamAddr(pub u16);
 
+#[derive(Copy, Clone)]
 pub enum VideoMemAddr {
     TileData(u16), // 0x8000 - 0x97FF
     TileMaps(u16), // 0x9800 - 0x9FFF
@@ -34,7 +39,7 @@ pub enum VideoMemAddr {
 pub enum _HighAddr {}
 
 // 0xFF00 - 0xFF7F
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum IOReg {
     P1, // 0xFF00
     Serial(SerialReg),
@@ -85,13 +90,13 @@ impl TryFrom<u16> for IOReg {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum SerialReg {
     SB, // 0xFF01
     SC, // 0xFF02
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum ApuReg {
     NR14, // 0xFF14
     NR50, // 0xFF24

@@ -5,7 +5,10 @@ mod registers;
 
 use super::board::Board;
 use super::cartridge::CartridgeMem;
-use super::interrupt_system::Interrupt;
+use super::{
+    debug::{CpuEvt, DbgEvtSrc},
+    interrupt_system::Interrupt,
+};
 use execute::*;
 use operands::{HighRamOperand, HlOperand, Imm8, ImmAddr};
 
@@ -35,7 +38,7 @@ pub struct CPU {
 }
 
 // TODO: Respect these states!
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum HaltState {
     Running,
 
@@ -69,12 +72,16 @@ impl CPU {
                 board.advance_mcycle();
             }
             Some(_) if matches!(self.halt_state, HaltState::Halted) => {
-                self.halt_state = HaltState::Running;
+                self.set_halt_state(board, HaltState::Running);
+                let instr_pc = self.reg.pc();
                 let instr = self.prefetch(board);
+                board.push_cpu_evt(CpuEvt::Exec(instr_pc, instr));
                 self.execute(board, instr);
             }
             _ => {
+                let instr_pc = self.reg.pc();
                 let instr = self.prefetch(board);
+                board.push_cpu_evt(CpuEvt::Exec(instr_pc, instr));
                 self.execute(board, instr);
             }
         }
@@ -95,6 +102,8 @@ impl CPU {
     fn jmp_to_interrupt_handler<B: Board>(&mut self, board: &mut B, interrupt: Interrupt) {
         // TODO: Add additional 4 clock wait if waking from HALT (and STOP???)
         // TODO: Recheck the timing in this function
+
+        board.push_cpu_evt(CpuEvt::HandleIR(interrupt));
 
         self.ime = false;
 
@@ -119,7 +128,9 @@ impl CPU {
         // 5 (The last clock is spent during the next prefetch)
     }
 
-    fn set_halt_state(&mut self, halt_state: HaltState) {
+    fn set_halt_state<B: Board>(&mut self, board: &mut B, halt_state: HaltState) {
+        board.push_cpu_evt(CpuEvt::EnterHalt(halt_state));
+
         self.halt_state = match halt_state {
             HaltState::Halted => HaltState::Halted,
             _ => unimplemented!("{:?}", halt_state),
@@ -161,7 +172,7 @@ impl CPU {
             DEC_C => dec8(self, board, C),
             LD_C_d8 => ld8(self, board, C, Imm8),
             RRCA => rrca(self),
-            STOP => self.set_halt_state(HaltState::Stopped),
+            STOP => self.set_halt_state(board, HaltState::Stopped),
             LD_DE_d16 => ld_rr_d16(self, board, DE),
             LD_xDEx_A => ld8(self, board, DE, A),
             INC_DE => inc_rr(self, board, DE),
@@ -263,7 +274,7 @@ impl CPU {
             LD_xHLx_E => ld8(self, board, HL, E),
             LD_xHLx_H => ld8(self, board, HL, H),
             LD_xHLx_L => ld8(self, board, HL, L),
-            HALT => self.set_halt_state(HaltState::Halted),
+            HALT => self.set_halt_state(board, HaltState::Halted),
             LD_xHLx_A => ld8(self, board, HL, A),
             LD_A_B => ld8(self, board, A, B),
             LD_A_C => ld8(self, board, A, C),
@@ -356,7 +367,7 @@ impl CPU {
             RET_NC => ret_cond(self, board, !self.reg.flags().contains(Flags::C)),
             POP_DE => pop(self, board, DE),
             JP_NC_a16 => jp_cond(self, board, !self.reg.flags().contains(Flags::C)),
-            NOT_USED => self.set_halt_state(HaltState::Stuck),
+            NOT_USED => self.set_halt_state(board, HaltState::Stuck),
             CALL_NC_a16 => call_cond(self, board, !self.reg.flags().contains(Flags::C)),
             PUSH_DE => push(self, board, DE),
             SUB_d8 => sub8(self, board, Imm8),
@@ -364,32 +375,32 @@ impl CPU {
             RET_C => ret_cond(self, board, self.reg.flags().contains(Flags::C)),
             RETI => ret(self, board, true),
             JP_C_a16 => jp_cond(self, board, self.reg.flags().contains(Flags::C)),
-            NOT_USED_0 => self.set_halt_state(HaltState::Stuck),
+            NOT_USED_0 => self.set_halt_state(board, HaltState::Stuck),
             CALL_C_a16 => call_cond(self, board, self.reg.flags().contains(Flags::C)),
-            NOT_USED_1 => self.set_halt_state(HaltState::Stuck),
+            NOT_USED_1 => self.set_halt_state(board, HaltState::Stuck),
             SBC_A_d8 => sbc8(self, board, Imm8),
             RST_18H => rst(self, board, 0x18),
             LDH_xa8x_A => ld8(self, board, HighRamOperand::Imm8, A),
             POP_HL => pop(self, board, HL),
             LD_xCx_A => ld8(self, board, HighRamOperand::C, A),
-            NOT_USED_2 => self.set_halt_state(HaltState::Stuck),
-            NOT_USED_3 => self.set_halt_state(HaltState::Stuck),
+            NOT_USED_2 => self.set_halt_state(board, HaltState::Stuck),
+            NOT_USED_3 => self.set_halt_state(board, HaltState::Stuck),
             PUSH_HL => push(self, board, HL),
             AND_d8 => and8(self, board, Imm8),
             RST_20H => rst(self, board, 0x20),
             ADD_SP_r8 => add_sp_r8(self, board),
-            JP_xHLx => jp_hl(self),
+            JP_xHLx => jp_hl(self, board),
             LD_xa16x_A => ld8(self, board, ImmAddr, A),
-            NOT_USED_4 => self.set_halt_state(HaltState::Stuck),
-            NOT_USED_5 => self.set_halt_state(HaltState::Stuck),
-            NOT_USED_6 => self.set_halt_state(HaltState::Stuck),
+            NOT_USED_4 => self.set_halt_state(board, HaltState::Stuck),
+            NOT_USED_5 => self.set_halt_state(board, HaltState::Stuck),
+            NOT_USED_6 => self.set_halt_state(board, HaltState::Stuck),
             XOR_d8 => xor8(self, board, Imm8),
             RST_28H => rst(self, board, 0x28),
             LDH_A_xa8x => ld8(self, board, A, HighRamOperand::Imm8),
             POP_AF => pop_af(self, board),
             LD_A_xCx => ld8(self, board, A, HighRamOperand::C),
             DI => self.set_ime(false),
-            NOT_USED_7 => self.set_halt_state(HaltState::Stuck),
+            NOT_USED_7 => self.set_halt_state(board, HaltState::Stuck),
             PUSH_AF => push(self, board, AF),
             OR_d8 => or8(self, board, Imm8),
             RST_30H => rst(self, board, 0x30),
@@ -397,8 +408,8 @@ impl CPU {
             LD_SP_HL => ld_sp_hl(self, board),
             LD_A_xa16x => ld8(self, board, A, ImmAddr),
             EI => self.set_ime(true),
-            NOT_USED_8 => self.set_halt_state(HaltState::Stuck),
-            NOT_USED_9 => self.set_halt_state(HaltState::Stuck),
+            NOT_USED_8 => self.set_halt_state(board, HaltState::Stuck),
+            NOT_USED_9 => self.set_halt_state(board, HaltState::Stuck),
             CP_d8 => drop(cp8(self, board, Imm8)),
             RST_38H => rst(self, board, 0x38),
         }
@@ -410,6 +421,7 @@ impl CPU {
         use R8::*;
 
         let instr = self.fetch_cb(board);
+        board.push_cpu_evt(CpuEvt::ExecCB(instr));
 
         match instr {
             RLC_B => rlc(self, board, B),

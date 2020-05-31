@@ -3,7 +3,7 @@ mod dbg_instr;
 mod fmt;
 
 use super::cpu::{ByteInstr, CBByteInstr, HaltState};
-use super::interrupt_system::Interrupt;
+use super::{address::Addr, interrupt_system::Interrupt};
 use std::collections::VecDeque;
 
 pub const MAX_EVTS_LOGGED: usize = 50;
@@ -18,8 +18,8 @@ pub trait DbgEvtSrc<T> {
 pub enum CpuEvt {
     Exec(u16, ByteInstr),
     ExecCB(CBByteInstr),
-    ReadMem(u16, u8),
-    WriteMem(u16, u8),
+    ReadMem(Addr, u8),
+    WriteMem(Addr, u8),
     HandleIR(Interrupt),
     TakeJmpTo(u16),
     SkipJmpTo(u16),

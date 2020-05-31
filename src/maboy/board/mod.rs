@@ -27,6 +27,12 @@ pub trait Board {
     fn write16(&mut self, addr: u16, val: u16);
 
     fn ir_system(&mut self) -> &mut InterruptSystem;
+
+    fn push_cpu_evt(&mut self, evt: CpuEvt);
+    fn pop_cpu_evt(&mut self) -> Option<CpuEvt>;
+
+    fn push_ppu_evt(&mut self, evt: PpuEvt);
+    fn pop_ppu_evt(&mut self) -> Option<PpuEvt>;
 }
 
 pub struct BoardImpl<CMem, CpuDbg, PpuDbg> {
@@ -126,7 +132,9 @@ impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>> B
 
         self.advance_mcycle();
 
-        self.read8_instant(addr)
+        let result = self.read8_instant(addr);
+        self.push_cpu_evt(CpuEvt::ReadMem(addr, result));
+        result
     }
 
     fn write8(&mut self, addr: u16, val: u8) {
@@ -155,6 +163,8 @@ impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>> B
             IO(reg) => log::warn!("Unimplemented IO write: {:?}", reg),
             IE => self.ir_system.write_ie(val),
         }
+
+        self.push_cpu_evt(CpuEvt::WriteMem(addr, val));
     }
 
     fn read16_instant(&self, addr: u16) -> u16 {
@@ -175,5 +185,21 @@ impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>> B
 
     fn ir_system(&mut self) -> &mut InterruptSystem {
         &mut self.ir_system
+    }
+
+    fn push_cpu_evt(&mut self, evt: CpuEvt) {
+        self.cpu_evt_src.push(evt);
+    }
+
+    fn pop_cpu_evt(&mut self) -> Option<CpuEvt> {
+        self.cpu_evt_src.pop()
+    }
+
+    fn push_ppu_evt(&mut self, evt: PpuEvt) {
+        self.ppu_evt_src.push(evt);
+    }
+
+    fn pop_ppu_evt(&mut self) -> Option<PpuEvt> {
+        self.ppu_evt_src.pop()
     }
 }
