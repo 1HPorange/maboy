@@ -131,8 +131,12 @@ impl CPU {
     fn set_halt_state<B: Board>(&mut self, board: &mut B, halt_state: HaltState) {
         board.push_cpu_evt(CpuEvt::EnterHalt(halt_state));
 
-        self.halt_state = match halt_state {
-            HaltState::Halted => HaltState::Halted,
+        self.halt_state = halt_state;
+
+        // TODO: This moves away once we implemented all HaltStates correctly
+        match halt_state {
+            HaltState::Halted => (),
+            HaltState::Running => (),
             _ => unimplemented!("{:?}", halt_state),
         }
     }
