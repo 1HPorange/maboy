@@ -54,7 +54,7 @@ impl CpuDebugger {
         term.write_line(&self.output_buffer).unwrap();
 
         loop {
-            term.write_str(":").unwrap();
+            term.write_str("\nEnter command: ").unwrap();
             let command = term.read_line().unwrap();
 
             match &command[..] {
@@ -173,7 +173,7 @@ impl CpuDebugger {
                 CpuEvt::TakeJmpTo(addr) => write!(
                     self.output_buffer,
                     "\n {} {}",
-                    style("Taking jump to: ").green(),
+                    style("Taking jump to:").green(),
                     addr.fmt_addr()
                 )
                 .unwrap(),
