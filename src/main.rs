@@ -20,26 +20,6 @@ const DOWN_BUTTON_KEY: KeyboardKey = KeyboardKey::S;
 const LEFT_BUTTON_KEY: KeyboardKey = KeyboardKey::A;
 const DEBUG_KEY: KeyboardKey = KeyboardKey::G;
 
-#[cfg(debug_assertions)]
-fn cpu_logger() -> impl DbgEvtSrc<CpuEvt> {
-    DbgEvtLogger::new()
-}
-
-#[cfg(not(debug_assertions))]
-fn cpu_logger() -> impl DbgEvtSrc<CpuEvt> {
-    NoDbgLogger
-}
-
-#[cfg(debug_assertions)]
-fn ppu_logger() -> impl DbgEvtSrc<PpuEvt> {
-    DbgEvtLogger::new()
-}
-
-#[cfg(not(debug_assertions))]
-fn ppu_logger() -> impl DbgEvtSrc<PpuEvt> {
-    NoDbgLogger
-}
-
 fn main() {
     env_logger::init();
 
@@ -65,7 +45,10 @@ fn main() {
 }
 
 fn run_emulation<C: CartridgeMem>(cartridge: C) {
-    let mut emu = Emulator::new(cartridge, cpu_logger(), ppu_logger());
+    let mut emu = Emulator::new(cartridge, cpu_logger(), NoDbgLogger);
+
+    #[cfg(debug_assertions)]
+    let mut cpu_debugger = CpuDebugger::new();
 
     // Initialize input system
     let window_input = Rc::new(RefCell::new(WindowInput::from_watched_keys(&[
@@ -123,6 +106,9 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
         .expect("Could not create OS timer. This timer is used to throttle the game.");
 
     loop {
+        #[cfg(debug_assertions)]
+        cpu_debugger.try_run_blocking(&emu);
+
         emu.emulate_step();
 
         let perform_os_update = match emu.query_video_frame_status() {
@@ -150,8 +136,11 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
             }
             last_os_update = Instant::now();
 
-            if window_input.borrow().is_pressed(DEBUG_KEY) {
-                todo!("Start Debugger!")
+            #[cfg(debug_assertions)]
+            {
+                if window_input.borrow().is_pressed(DEBUG_KEY) {
+                    cpu_debugger.request_break();
+                }
             }
         }
     }
@@ -226,4 +215,14 @@ fn os_update<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<Pp
     emu.notify_buttons_state(button_states);
 
     true
+}
+
+#[cfg(debug_assertions)]
+fn cpu_logger() -> DbgEvtLogger<CpuEvt> {
+    DbgEvtLogger::new()
+}
+
+#[cfg(not(debug_assertions))]
+fn cpu_logger() -> NoDbgLogger {
+    NoDbgLogger
 }

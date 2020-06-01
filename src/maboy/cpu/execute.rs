@@ -105,17 +105,15 @@ pub fn ccf(cpu: &mut CPU) {
 }
 
 pub fn jr_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
-    let offset: i8 = unsafe { std::mem::transmute(cpu.read8i(board)) };
+    let offset = cpu.read8i(board) as i8;
 
     if cond {
-        // TODO: Figure out why the heck this cast works
         *cpu.reg.pc_mut() = cpu.reg.pc().wrapping_add(offset as u16);
 
         board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.pc()));
 
         board.advance_mcycle();
     } else {
-        // TODO: Figure out why the heck this cast works
         board.push_cpu_evt(CpuEvt::SkipJmpTo(cpu.reg.pc().wrapping_add(offset as u16)));
     }
 }

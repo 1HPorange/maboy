@@ -1,6 +1,6 @@
 use std::convert::TryFrom;
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Addr {
     Mem(MemAddr),
     VideoMem(VideoMemAddr),
@@ -9,7 +9,7 @@ pub enum Addr {
     IE,        // 0xFFFF
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum MemAddr {
     CROM(CRomAddr), // 0x0000 - 0x7FFF
     CRAM(CRamAddr), // 0xA000 - 0xBFFF
@@ -18,16 +18,16 @@ pub enum MemAddr {
     HRAM(u16),      // 0xFF80 - 0xFFFE
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum CRomAddr {
     CROM0(u16), // 0x0000 - 0x3FFF
     CROMn(u16), // 0x4000 - 0x7FFF
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct CRamAddr(pub u16);
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum VideoMemAddr {
     TileData(u16), // 0x8000 - 0x97FF
     TileMaps(u16), // 0x9800 - 0x9FFF

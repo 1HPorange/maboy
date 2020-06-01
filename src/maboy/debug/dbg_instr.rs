@@ -1,4 +1,6 @@
 use crate::maboy::cpu::{ByteInstr, CBByteInstr};
+
+#[derive(Copy, Clone)]
 pub(super) enum OperandType {
     /// 8 bit arbitrary data
     D8,

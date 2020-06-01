@@ -29,10 +29,7 @@ pub trait Board {
     fn ir_system(&mut self) -> &mut InterruptSystem;
 
     fn push_cpu_evt(&mut self, evt: CpuEvt);
-    fn pop_cpu_evt(&mut self) -> Option<CpuEvt>;
-
     fn push_ppu_evt(&mut self, evt: PpuEvt);
-    fn pop_ppu_evt(&mut self) -> Option<PpuEvt>;
 }
 
 pub struct BoardImpl<CMem, CpuDbg, PpuDbg> {
@@ -43,8 +40,8 @@ pub struct BoardImpl<CMem, CpuDbg, PpuDbg> {
     oam_dma: OamDma,
     timer: Timer,
     serial_port: SerialPort,
-    cpu_evt_src: CpuDbg,
-    ppu_evt_src: PpuDbg,
+    pub cpu_evt_src: CpuDbg,
+    pub ppu_evt_src: PpuDbg,
 }
 
 impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>
@@ -128,11 +125,9 @@ impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>> B
     }
 
     fn read8(&mut self, addr: u16) -> u8 {
-        let addr = Addr::from(addr);
-
         self.advance_mcycle();
 
-        let result = self.read8_instant(addr);
+        let result = self.read8_instant(Addr::from(addr));
         self.push_cpu_evt(CpuEvt::ReadMem(addr, result));
         result
     }
@@ -140,11 +135,9 @@ impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>> B
     fn write8(&mut self, addr: u16, val: u8) {
         use Addr::*;
 
-        let addr = Addr::from(addr);
-
         self.advance_mcycle();
 
-        match addr {
+        match Addr::from(addr) {
             Mem(mem_addr) => self.mem.write8(mem_addr, val),
             // OAM is unavailable during OAM DMA
             VideoMem(VideoMemAddr::OAM(_)) if self.oam_dma.is_active() => (),
@@ -191,15 +184,7 @@ impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>> B
         self.cpu_evt_src.push(evt);
     }
 
-    fn pop_cpu_evt(&mut self) -> Option<CpuEvt> {
-        self.cpu_evt_src.pop()
-    }
-
     fn push_ppu_evt(&mut self, evt: PpuEvt) {
         self.ppu_evt_src.push(evt);
-    }
-
-    fn pop_ppu_evt(&mut self) -> Option<PpuEvt> {
-        self.ppu_evt_src.pop()
     }
 }
