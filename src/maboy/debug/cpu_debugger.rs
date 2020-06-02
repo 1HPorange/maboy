@@ -59,7 +59,10 @@ impl CpuDebugger {
 
             match &command[..] {
                 "run" => break,
-                _ => (),
+                _ if command.starts_with("bp") => {
+                    self.cmd_bp(&term, command.split_ascii_whitespace().skip(1))
+                }
+                _ => term.write_line("Unknown command").unwrap(),
             }
         }
 
@@ -237,6 +240,48 @@ impl CpuDebugger {
             write!(self.output_buffer, "\n [{}] {:?}", pc.fmt_addr(), instr).unwrap();
 
             pc.wrapping_add(1)
+        }
+    }
+
+    fn cmd_bp<'a, I: Iterator<Item = &'a str>>(&mut self, term: &Term, mut args: I) {
+        let parse_addr_err = |err| Err(format!("Could not parse address: {}", err));
+        let no_addr_err = || Err("No address provided".to_owned());
+
+        let result = match args.by_ref().next() {
+            Some("set") => match args.next() {
+                Some(addr) => match parse_int::parse(addr) {
+                    Ok(addr) => {
+                        self.breakpoints.push(addr);
+                        Ok(format!("Added breakpoint at {}", addr.fmt_addr()))
+                    }
+                    Err(err) => parse_addr_err(err),
+                },
+                None => no_addr_err(),
+            },
+            Some("rm") => match args.next() {
+                Some(addr) => match parse_int::parse(addr) {
+                    Ok(addr) => {
+                        self.breakpoints.retain(|a| *a != addr);
+                        Ok("Breakpoint removed".to_owned())
+                    }
+                    Err(err) => parse_addr_err(err),
+                },
+                None => no_addr_err(),
+            },
+            Some("clear") => {
+                self.breakpoints.clear();
+                Ok("All breakpoints cleared".to_owned())
+            }
+            _ => Err("Use either 'set', 'rm' or 'clear'".to_owned()),
+        };
+
+        match result {
+            Ok(output) => term
+                .write_line(&format!("{}", style(output).green()))
+                .unwrap(),
+            Err(output) => term
+                .write_line(&format!("{}", style(output).red()))
+                .unwrap(),
         }
     }
 }

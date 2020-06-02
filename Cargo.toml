@@ -15,6 +15,7 @@ num_enum = "0.4"
 
 # Only keep this as long as we have the ugly CLI debugger
 console = { version = "0.11", features = [] }
+parse_int = "0.4"
 
 # TODO: Hide this behind platform specific compilation
 winapi = { version = "0.3", features = ["libloaderapi", "winuser", "errhandlingapi", "windef", "minwindef", "d3d11", "d3dcommon", "dxgi1_2", "synchapi", "handleapi", "profileapi", "xinput"] }
