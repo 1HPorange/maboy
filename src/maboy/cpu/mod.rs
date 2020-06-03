@@ -63,28 +63,34 @@ impl CPU {
     }
 
     pub fn step_instr<B: Board>(&mut self, board: &mut B) {
-        match board.ir_system().query_interrupt_request() {
-            Some(interrupt) if self.ime => self.jmp_to_interrupt_handler(board, interrupt),
-            // Interrupt flags are ONLY cleared if we take the jump, so we don't
-            // need to clear them that in any of the other match arms
-            None if matches!(self.halt_state, HaltState::Halted) => {
-                // Just idle until we get an interrupt
-                board.advance_mcycle();
+        match self.halt_state {
+            HaltState::Running => match board.ir_system().query_interrupt_request() {
+                Some(interrupt) if self.ime => self.jmp_to_interrupt_handler(board, interrupt),
+                _ => self.fetch_exec(board),
+            },
+            HaltState::Halted => {
+                if let Some(interrupt) = board.ir_system().query_interrupt_request() {
+                    self.set_halt_state(board, HaltState::Running);
+
+                    if self.ime {
+                        self.jmp_to_interrupt_handler(board, interrupt);
+                    } else {
+                        self.fetch_exec(board);
+                    }
+                } else {
+                    board.advance_mcycle();
+                }
             }
-            Some(_) if matches!(self.halt_state, HaltState::Halted) => {
-                self.set_halt_state(board, HaltState::Running);
-                let instr_pc = self.reg.pc();
-                let instr = self.prefetch(board);
-                board.push_cpu_evt(CpuEvt::Exec(instr_pc, instr));
-                self.execute(board, instr);
-            }
-            _ => {
-                let instr_pc = self.reg.pc();
-                let instr = self.prefetch(board);
-                board.push_cpu_evt(CpuEvt::Exec(instr_pc, instr));
-                self.execute(board, instr);
-            }
+            HaltState::Stopped => unimplemented!(),
+            HaltState::Stuck => unimplemented!(),
         }
+    }
+
+    fn fetch_exec<B: Board>(&mut self, board: &mut B) {
+        let instr_pc = self.reg.pc();
+        let instr = self.prefetch(board);
+        board.push_cpu_evt(CpuEvt::Exec(instr_pc, instr));
+        self.execute(board, instr);
     }
 
     fn read8i<B: Board>(&mut self, board: &mut B) -> u8 {

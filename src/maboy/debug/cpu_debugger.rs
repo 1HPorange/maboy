@@ -88,7 +88,9 @@ impl CpuDebugger {
                 _ if command.starts_with("bp") => {
                     cmd_bp::execute(self, &term, command.split_ascii_whitespace().skip(1));
                 }
-                _ => term.write_line("Unknown command\n").unwrap(),
+                _ => term
+                    .write_line(&style("Unknown command\n").red().to_string())
+                    .unwrap(),
             }
         }
 
