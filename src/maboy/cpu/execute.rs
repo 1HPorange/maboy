@@ -167,7 +167,9 @@ pub fn rst<B: Board>(cpu: &mut CPU, board: &mut B, target: u16) {
 pub fn ret<B: Board>(cpu: &mut CPU, board: &mut B, enable_ime: bool) {
     pop(cpu, board, R16::PC);
 
-    cpu.ime |= enable_ime;
+    if enable_ime {
+        cpu.set_ime(board, true);
+    }
 
     board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.pc()));
 

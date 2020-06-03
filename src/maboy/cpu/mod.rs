@@ -105,7 +105,7 @@ impl CPU {
 
         board.push_cpu_evt(CpuEvt::HandleIR(interrupt));
 
-        self.ime = false;
+        self.set_ime(board, false);
 
         // TODO: Make this stuff prettier... I mean we have IRSystem...
         // TODO: Move this code into IRSystem
@@ -141,8 +141,14 @@ impl CPU {
         }
     }
 
-    fn set_ime(&mut self, ime: bool) {
+    fn set_ime<B: Board>(&mut self, board: &mut B, ime: bool) {
         self.ime = ime;
+
+        if ime {
+            board.push_cpu_evt(CpuEvt::IrEnable);
+        } else {
+            board.push_cpu_evt(CpuEvt::IrDisable);
+        }
     }
 
     fn prefetch<B: Board>(&mut self, board: &mut B) -> ByteInstr {
@@ -403,7 +409,7 @@ impl CPU {
             LDH_A_xa8x => ld8(self, board, A, HighRamOperand::Imm8),
             POP_AF => pop_af(self, board),
             LD_A_xCx => ld8(self, board, A, HighRamOperand::C),
-            DI => self.set_ime(false),
+            DI => self.set_ime(board, false),
             NOT_USED_7 => self.set_halt_state(board, HaltState::Stuck),
             PUSH_AF => push(self, board, AF),
             OR_d8 => or8(self, board, Imm8),
@@ -411,7 +417,7 @@ impl CPU {
             LD_HL_SPpr8 => ld_hl_sp_r8(self, board),
             LD_SP_HL => ld_sp_hl(self, board),
             LD_A_xa16x => ld8(self, board, A, ImmAddr),
-            EI => self.set_ime(true),
+            EI => self.set_ime(board, true),
             NOT_USED_8 => self.set_halt_state(board, HaltState::Stuck),
             NOT_USED_9 => self.set_halt_state(board, HaltState::Stuck),
             CP_d8 => drop(cp8(self, board, Imm8)),

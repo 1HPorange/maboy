@@ -19,7 +19,7 @@ use std::time::Duration;
 pub struct CpuDebugger {
     pub breakpoints: Vec<u16>,
     pub mem_breakpoints: Vec<(u16, BreakCond)>,
-    break_in: Option<u16>,
+    break_in: Option<usize>,
     output_buffer: String,
 }
 
@@ -80,9 +80,10 @@ impl CpuDebugger {
 
             match &command[..] {
                 "run" => break,
-                "step" => {
-                    self.break_in(0);
-                    break;
+                _ if command.starts_with("step") => {
+                    if self.cmd_step(&term, command.split_ascii_whitespace().skip(1)) {
+                        break;
+                    }
                 }
                 _ if command.starts_with("bp") => {
                     cmd_bp::execute(self, &term, command.split_ascii_whitespace().skip(1));
@@ -119,14 +120,15 @@ impl CpuDebugger {
             }
         }
 
-        let mut latest_mem_acceses = emu
-            .board
-            .cpu_evt_src
-            .evts()
-            .rev()
-            .take_while(|evt| !matches!(evt, CpuEvt::Exec(_, _)));
-
         for (bp, cond) in self.mem_breakpoints.iter().copied() {
+            // Can't move this outside of the loop, or it will be consumed by the first breakpoint!
+            let mut latest_mem_acceses = emu
+                .board
+                .cpu_evt_src
+                .evts()
+                .rev()
+                .take_while(|evt| !matches!(evt, CpuEvt::Exec(_, _)));
+
             if latest_mem_acceses.any(|evt| match evt {
                 CpuEvt::ReadMem(addr, _) => {
                     bp == *addr && matches!(cond, BreakCond::Read | BreakCond::ReadWrite)
@@ -147,8 +149,31 @@ impl CpuDebugger {
         self.break_in(0);
     }
 
-    fn break_in(&mut self, steps: u16) {
+    fn break_in(&mut self, steps: usize) {
         self.break_in = Some(steps);
+    }
+
+    /// Returns true if the command was succesful
+    fn cmd_step<'a, I: Iterator<Item = &'a str>>(&mut self, term: &Term, mut args: I) -> bool {
+        match args.next() {
+            Some("line") => self.break_in(114 - 4),
+            Some("frame") => self.break_in(17556 - 4),
+            Some(steps_str) => match steps_str.parse::<usize>() {
+                Ok(steps) => self.break_in(steps),
+                Err(err) => {
+                    term.write_line(&format!(
+                        "{} {}",
+                        style("Could not parse number of steps").red(),
+                        style(err).red()
+                    ))
+                    .unwrap();
+                    return false;
+                }
+            },
+            None => self.break_in(0),
+        }
+
+        true
     }
 
     fn print_break_reason(&mut self, break_reason: BreakReason) {
@@ -214,14 +239,6 @@ impl CpuDebugger {
                 style("On").green()
             } else {
                 style("Off").red()
-            }
-        }
-
-        fn print_col(s: &str, enabled: bool) -> StyledObject<&str> {
-            if enabled {
-                style(s).green()
-            } else {
-                style(s).red()
             }
         }
 
@@ -316,6 +333,18 @@ impl CpuDebugger {
                     " {} {:?}",
                     style("Entering halt state:").red(),
                     halt_state
+                )
+                .unwrap(),
+                CpuEvt::IrEnable => writeln!(
+                    self.output_buffer,
+                    " {}",
+                    style("Interrupts enabled").green()
+                )
+                .unwrap(),
+                CpuEvt::IrDisable => writeln!(
+                    self.output_buffer,
+                    " {}",
+                    style("Interrupts Disabled").red()
                 )
                 .unwrap(),
             }
@@ -422,7 +451,7 @@ mod cmd_bp {
         output: &mut String,
         mut args: I,
     ) {
-        let bp_added_msg = |addr: u16, output: &mut String| {
+        fn print_bp_added_msg(addr: u16, output: &mut String) {
             writeln!(
                 output,
                 "{} {}",
@@ -435,15 +464,15 @@ mod cmd_bp {
         match args.by_ref().next() {
             Some("r") => cmd_bp::exec_with_addr(args.next(), output, |addr, output| {
                 dbg.mem_breakpoints.push((addr, BreakCond::Read));
-                bp_added_msg(addr, output);
+                print_bp_added_msg(addr, output);
             }),
             Some("w") => cmd_bp::exec_with_addr(args.next(), output, |addr, output| {
                 dbg.mem_breakpoints.push((addr, BreakCond::Write));
-                bp_added_msg(addr, output);
+                print_bp_added_msg(addr, output);
             }),
             Some("rw") => cmd_bp::exec_with_addr(args.next(), output, |addr, output| {
                 dbg.mem_breakpoints.push((addr, BreakCond::ReadWrite));
-                bp_added_msg(addr, output);
+                print_bp_added_msg(addr, output);
             }),
             _ => writeln!(output, "{}", style("Use either 'r', 'w', or 'rw'").red()).unwrap(),
         }

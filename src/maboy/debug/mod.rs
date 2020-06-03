@@ -25,6 +25,8 @@ pub enum CpuEvt {
     TakeJmpTo(u16),
     SkipJmpTo(u16),
     EnterHalt(HaltState),
+    IrEnable,
+    IrDisable,
 }
 
 pub enum PpuEvt {}
