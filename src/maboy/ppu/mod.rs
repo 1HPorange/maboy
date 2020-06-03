@@ -64,7 +64,7 @@ pub enum VideoFrameStatus<'a> {
 
 #[derive(Copy, Clone, Debug, UnsafeFromPrimitive)]
 #[repr(u8)]
-pub(super) enum Mode {
+pub enum Mode {
     LCDOff = 4,
 
     /// Mode 0

@@ -217,19 +217,43 @@ impl CpuDebugger {
             }
         }
 
+        fn print_col(s: &str, enabled: bool) -> StyledObject<&str> {
+            if enabled {
+                style(s).green()
+            } else {
+                style(s).red()
+            }
+        }
+
         let lcdc = LCDC(ppu.read_reg(PpuReg::LCDC));
+        let lcds = LCDS::from_raw(ppu.read_reg(PpuReg::LCDS));
+
         writeln!(
             self.output_buffer,
-            "LCD: {}, WND: {}, OBJ: {} ({:?}), BG: {}",
+            " LCD: {} ({:?}), WND: {}, OBJ: {} ({:?}), BG: {}, LYC==LY: {}",
             print_on_off(lcdc.lcd_enabled()),
+            lcds.mode(),
             print_on_off(lcdc.window_enabled()),
             print_on_off(lcdc.sprites_enabled()),
             lcdc.sprite_size(),
             print_on_off(lcdc.bg_enabled()),
+            if lcds.lyc_equals_ly() {
+                style("Yes").green()
+            } else {
+                style("No").red()
+            },
         )
         .unwrap();
 
-        let lcds = LCDS::from_raw(ppu.read_reg(PpuReg::LCDS));
+        writeln!(
+            self.output_buffer,
+            " Interrupts: LYC: {}, OAMSearch: {}, VBlank: {}, HBlank: {}",
+            print_on_off(lcds.ly_coincidence_interrupt()),
+            print_on_off(lcds.oam_search_interrupt()),
+            print_on_off(lcds.v_blank_interrupt()),
+            print_on_off(lcds.h_blank_interrupt()),
+        )
+        .unwrap();
 
         writeln!(
             self.output_buffer,

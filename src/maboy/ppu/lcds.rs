@@ -30,6 +30,18 @@ impl LCDS {
         self.0.bit(3)
     }
 
+    pub fn lyc_equals_ly(&self) -> bool {
+        self.0.bit(2)
+    }
+
+    pub fn set_lyc_equals_ly(&mut self, are_equal: bool) {
+        self.0 = self.0.set_bit_to(2, are_equal)
+    }
+
+    pub fn mode(&self) -> Mode {
+        unsafe { Mode::from_unchecked(self.0 & 0b11) }
+    }
+
     pub fn write(&mut self, val: u8) {
         let write_mask = 0b_0111_1000;
         self.0 = (self.0 & (!write_mask)) + (val & write_mask);
@@ -50,15 +62,11 @@ impl LCDS {
 
     pub fn any_conditions_met(&self) -> bool {
         (self.ly_coincidence_interrupt() && self.0.bit(2))
-            || match unsafe { Mode::from_unchecked(self.0 & 0b11) } {
+            || match self.mode() {
                 Mode::OAMSearch => self.oam_search_interrupt(),
                 Mode::VBlank => self.v_blank_interrupt(),
                 Mode::HBlank => self.h_blank_interrupt(),
                 _ => false,
             }
-    }
-
-    pub fn set_lyc_equals_ly(&mut self, are_equal: bool) {
-        self.0 = self.0.set_bit_to(2, are_equal)
     }
 }
