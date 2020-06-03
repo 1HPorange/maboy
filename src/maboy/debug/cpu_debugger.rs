@@ -17,7 +17,7 @@ use std::time::Duration;
 
 pub struct CpuDebugger {
     pub breakpoints: Vec<u16>,
-    pub cond_breakpoints: Vec<(u16, BreakCond)>,
+    pub mem_breakpoints: Vec<(u16, BreakCond)>,
     break_in: Option<u16>,
     output_buffer: String,
 }
@@ -39,7 +39,7 @@ impl CpuDebugger {
     pub fn new() -> CpuDebugger {
         CpuDebugger {
             breakpoints: Vec::new(),
-            cond_breakpoints: Vec::new(),
+            mem_breakpoints: Vec::new(),
             break_in: None,
             output_buffer: String::new(),
         }
@@ -60,11 +60,9 @@ impl CpuDebugger {
         writeln!(self.output_buffer, "CPU").unwrap();
         self.print_cpu_state(&emu.cpu.reg);
 
-        write!(self.output_buffer, "\nMem").unwrap();
+        writeln!(self.output_buffer, "\nMem").unwrap();
         self.print_preceding_instr(emu);
         self.print_upcoming_instr(&emu.cpu, &emu.board);
-
-        write!(self.output_buffer, "\n").unwrap();
 
         let term = Term::stdout();
         term.clear_screen().unwrap();
@@ -124,7 +122,7 @@ impl CpuDebugger {
             .rev()
             .take_while(|evt| !matches!(evt, CpuEvt::Exec(_, _)));
 
-        for (bp, cond) in self.cond_breakpoints.iter().copied() {
+        for (bp, cond) in self.mem_breakpoints.iter().copied() {
             if latest_mem_acceses.any(|evt| match evt {
                 CpuEvt::ReadMem(addr, _) => {
                     bp == *addr && matches!(cond, BreakCond::Read | BreakCond::ReadWrite)
@@ -213,48 +211,45 @@ impl CpuDebugger {
         for evt in emu.board.cpu_evt_src.evts() {
             match evt {
                 CpuEvt::Exec(pc, instr) => {
-                    write!(self.output_buffer, "\n [{}] {:?}", pc.fmt_addr(), instr).unwrap()
+                    writeln!(self.output_buffer, " [{}] {:?}", pc.fmt_addr(), instr).unwrap()
                 }
                 CpuEvt::ExecCB(instr) => {
-                    write!(self.output_buffer, "\n  Executing {:?}", instr).unwrap()
+                    writeln!(self.output_buffer, "  Executing {:?}", instr).unwrap()
                 }
-                CpuEvt::ReadMem(addr, val) => write!(
+                CpuEvt::ReadMem(addr, val) => writeln!(
                     self.output_buffer,
-                    "\n  Read {} from {}",
+                    "  Read {} from {}",
                     val.fmt_val(),
                     addr.fmt_addr(),
                 )
                 .unwrap(),
-                CpuEvt::WriteMem(addr, val) => write!(
+                CpuEvt::WriteMem(addr, val) => writeln!(
                     self.output_buffer,
-                    "\n  Write {} to {}",
+                    "  Write {} to {}",
                     val.fmt_val(),
                     addr.fmt_addr(),
                 )
                 .unwrap(),
-                CpuEvt::HandleIR(ir) => write!(
+                CpuEvt::HandleIR(ir) => {
+                    writeln!(self.output_buffer, " Jumping to {:?} interrupt handler", ir).unwrap()
+                }
+                CpuEvt::TakeJmpTo(addr) => writeln!(
                     self.output_buffer,
-                    "\n Jumping to {:?} interrupt handler",
-                    ir
-                )
-                .unwrap(),
-                CpuEvt::TakeJmpTo(addr) => write!(
-                    self.output_buffer,
-                    "\n {} {}",
+                    " {} {}",
                     style("Taking jump to:").green(),
                     addr.fmt_addr()
                 )
                 .unwrap(),
-                CpuEvt::SkipJmpTo(addr) => write!(
+                CpuEvt::SkipJmpTo(addr) => writeln!(
                     self.output_buffer,
-                    "\n {} {}",
+                    " {} {}",
                     style("Skipping jump to").red(),
                     addr.fmt_addr()
                 )
                 .unwrap(),
-                CpuEvt::EnterHalt(halt_state) => write!(
+                CpuEvt::EnterHalt(halt_state) => writeln!(
                     self.output_buffer,
-                    "\n {} {:?}",
+                    " {} {:?}",
                     style("Entering halt state:").red(),
                     halt_state
                 )
@@ -264,13 +259,18 @@ impl CpuDebugger {
     }
 
     fn print_upcoming_instr<B: Board>(&mut self, cpu: &CPU, board: &B) {
+        writeln!(
+            self.output_buffer,
+            "{}",
+            style(">>>>>>>>> You are here >>>>>>>>>").green()
+        )
+        .unwrap();
+
         let mut pc = cpu.reg.pc();
         let instr: ByteInstr =
             unsafe { std::mem::transmute(board.read8_instant(Addr::from(cpu.reg.pc()))) };
 
-        pc = self.print_single_instr(board, pc, instr);
-
-        write!(self.output_buffer, "{}", style(" <- You are here").green()).unwrap();
+        self.print_single_instr(board, &mut pc, instr);
 
         if instr.is_control_flow_change() {
             return;
@@ -280,7 +280,7 @@ impl CpuDebugger {
             let instr: ByteInstr =
                 unsafe { std::mem::transmute(board.read8_instant(Addr::from(pc))) };
 
-            pc = self.print_single_instr(board, pc, instr);
+            self.print_single_instr(board, &mut pc, instr);
 
             if instr.is_control_flow_change() {
                 return;
@@ -289,22 +289,22 @@ impl CpuDebugger {
     }
 
     /// Returns new PC after reading the instruction
-    fn print_single_instr<B: Board>(&mut self, board: &B, pc: u16, instr: ByteInstr) -> u16 {
+    fn print_single_instr<B: Board>(&mut self, board: &B, pc: &mut u16, instr: ByteInstr) {
         if let Some(operand) = instr.operand_type() {
-            write!(
+            writeln!(
                 self.output_buffer,
-                "\n [{}] {:?} {}",
+                " [{}] {:?} {}",
                 pc.fmt_addr(),
                 instr,
-                operand.fmt(board, pc)
+                operand.fmt(board, *pc)
             )
             .unwrap();
 
-            pc.wrapping_add(1 + operand.len() as u16)
+            *pc = pc.wrapping_add(1 + operand.len() as u16);
         } else {
-            write!(self.output_buffer, "\n [{}] {:?}", pc.fmt_addr(), instr).unwrap();
+            writeln!(self.output_buffer, " [{}] {:?}", pc.fmt_addr(), instr).unwrap();
 
-            pc.wrapping_add(1)
+            *pc = pc.wrapping_add(1);
         }
     }
 }
@@ -370,15 +370,15 @@ mod cmd_bp {
 
         match args.by_ref().next() {
             Some("r") => cmd_bp::exec_with_addr(args.next(), output, |addr, output| {
-                dbg.cond_breakpoints.push((addr, BreakCond::Read));
+                dbg.mem_breakpoints.push((addr, BreakCond::Read));
                 bp_added_msg(addr, output);
             }),
             Some("w") => cmd_bp::exec_with_addr(args.next(), output, |addr, output| {
-                dbg.cond_breakpoints.push((addr, BreakCond::Write));
+                dbg.mem_breakpoints.push((addr, BreakCond::Write));
                 bp_added_msg(addr, output);
             }),
             Some("rw") => cmd_bp::exec_with_addr(args.next(), output, |addr, output| {
-                dbg.cond_breakpoints.push((addr, BreakCond::ReadWrite));
+                dbg.mem_breakpoints.push((addr, BreakCond::ReadWrite));
                 bp_added_msg(addr, output);
             }),
             _ => writeln!(output, "{}", style("Use either 'r', 'w', or 'rw'").red()).unwrap(),
@@ -390,7 +390,7 @@ mod cmd_bp {
             writeln!(output, " {:>3}. {}", idx, bp.fmt_addr()).unwrap();
         }
 
-        for (idx, (addr, cond)) in dbg.cond_breakpoints.iter().copied().enumerate() {
+        for (idx, (addr, cond)) in dbg.mem_breakpoints.iter().copied().enumerate() {
             writeln!(
                 output,
                 " {:>3}. {} ({:?})",
@@ -415,8 +415,8 @@ mod cmd_bp {
                         writeln!(output, "{}", style("Breakpoint removed").green()).unwrap();
                     } else {
                         let idx = idx - dbg.breakpoints.len();
-                        if idx < dbg.cond_breakpoints.len() {
-                            dbg.cond_breakpoints.remove(idx);
+                        if idx < dbg.mem_breakpoints.len() {
+                            dbg.mem_breakpoints.remove(idx);
                             writeln!(output, "{}", style("Breakpoint removed").green()).unwrap();
                         } else {
                             writeln!(output, "{}", style("Invalid breakpoint index").red())
@@ -443,7 +443,7 @@ mod cmd_bp {
 
     fn clear(dbg: &mut CpuDebugger, output: &mut String) {
         dbg.breakpoints.clear();
-        dbg.cond_breakpoints.clear();
+        dbg.mem_breakpoints.clear();
         writeln!(output, "{}", style("All breakpoints cleared").green()).unwrap();
     }
 
