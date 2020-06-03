@@ -9,13 +9,13 @@ use std::iter::Iterator;
 
 pub use cpu_debugger::CpuDebugger;
 
-pub const MAX_EVTS_LOGGED: usize = 50;
+pub const MAX_EVTS_LOGGED: usize = 8;
 
 pub trait DbgEvtSrc<T> {
     fn push(&mut self, evt: T);
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum CpuEvt {
     Exec(u16, ByteInstr),
     ExecCB(CBByteInstr),
@@ -42,7 +42,7 @@ impl<T> DbgEvtLogger<T> {
         Self(VecDeque::with_capacity(MAX_EVTS_LOGGED))
     }
 
-    pub fn evts(&self) -> impl Iterator<Item = &T> {
+    pub fn evts(&self) -> impl DoubleEndedIterator<Item = &T> {
         self.0.iter()
     }
 }

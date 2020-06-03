@@ -17,14 +17,29 @@ use std::time::Duration;
 
 pub struct CpuDebugger {
     pub breakpoints: Vec<u16>,
+    pub cond_breakpoints: Vec<(u16, BreakCond)>,
     break_in: Option<u16>,
     output_buffer: String,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum BreakCond {
+    ReadWrite,
+    Read,
+    Write,
+}
+
+enum BreakReason {
+    UserRequest,
+    BreakpointHit(u16),
+    CondBreakpointHit(u16, BreakCond),
 }
 
 impl CpuDebugger {
     pub fn new() -> CpuDebugger {
         CpuDebugger {
             breakpoints: Vec::new(),
+            cond_breakpoints: Vec::new(),
             break_in: None,
             output_buffer: String::new(),
         }
@@ -35,18 +50,21 @@ impl CpuDebugger {
         &mut self,
         emu: &Emulator<CMem, DbgEvtLogger<CpuEvt>, PpuDbg>,
     ) {
-        if !self.break_cond_met(emu) {
+        if let Some(break_reason) = self.break_reason(emu) {
+            self.output_buffer.clear();
+            self.print_break_reason(break_reason);
+        } else {
             return;
         }
 
-        self.output_buffer.clear();
-
-        writeln!(&mut self.output_buffer, "CPU").unwrap();
+        writeln!(self.output_buffer, "CPU").unwrap();
         self.print_cpu_state(&emu.cpu.reg);
 
-        writeln!(&mut self.output_buffer, "\nMem").unwrap();
+        write!(self.output_buffer, "\nMem").unwrap();
         self.print_preceding_instr(emu);
         self.print_upcoming_instr(&emu.cpu, &emu.board);
+
+        write!(self.output_buffer, "\n").unwrap();
 
         let term = Term::stdout();
         term.clear_screen().unwrap();
@@ -54,29 +72,34 @@ impl CpuDebugger {
         term.write_line(&self.output_buffer).unwrap();
 
         loop {
-            term.write_str("\nEnter command: ").unwrap();
+            term.write_str(&style("Enter command: ").yellow().to_string())
+                .unwrap();
             let command = term.read_line().unwrap();
 
             match &command[..] {
                 "run" => break,
-                _ if command.starts_with("bp") => {
-                    self.cmd_bp(&term, command.split_ascii_whitespace().skip(1))
+                "step" => {
+                    self.break_in(0);
+                    break;
                 }
-                _ => term.write_line("Unknown command").unwrap(),
+                _ if command.starts_with("bp") => {
+                    cmd_bp::execute(self, &term, command.split_ascii_whitespace().skip(1));
+                }
+                _ => term.write_line("Unknown command\n").unwrap(),
             }
         }
 
         term.clear_screen().unwrap();
     }
 
-    fn break_cond_met<CMem: CartridgeMem, PpuDbg: DbgEvtSrc<PpuEvt>>(
+    fn break_reason<CMem: CartridgeMem, PpuDbg: DbgEvtSrc<PpuEvt>>(
         &mut self,
         emu: &Emulator<CMem, DbgEvtLogger<CpuEvt>, PpuDbg>,
-    ) -> bool {
+    ) -> Option<BreakReason> {
         if let Some(steps) = &mut self.break_in {
             if *steps == 0 {
                 self.break_in = None;
-                return true;
+                return Some(BreakReason::UserRequest);
             } else {
                 *steps -= 1;
             }
@@ -90,11 +113,32 @@ impl CpuDebugger {
 
         for bp in self.breakpoints.iter().copied() {
             if bp >= instr_start && bp <= instr_end {
-                return true;
+                return Some(BreakReason::BreakpointHit(bp));
             }
         }
 
-        false
+        let mut latest_mem_acceses = emu
+            .board
+            .cpu_evt_src
+            .evts()
+            .rev()
+            .take_while(|evt| !matches!(evt, CpuEvt::Exec(_, _)));
+
+        for (bp, cond) in self.cond_breakpoints.iter().copied() {
+            if latest_mem_acceses.any(|evt| match evt {
+                CpuEvt::ReadMem(addr, _) => {
+                    bp == *addr && matches!(cond, BreakCond::Read | BreakCond::ReadWrite)
+                }
+                CpuEvt::WriteMem(addr, _) => {
+                    bp == *addr && matches!(cond, BreakCond::Write | BreakCond::ReadWrite)
+                }
+                _ => false,
+            }) {
+                return Some(BreakReason::CondBreakpointHit(bp, cond));
+            }
+        }
+
+        None
     }
 
     pub fn request_break(&mut self) {
@@ -103,6 +147,27 @@ impl CpuDebugger {
 
     fn break_in(&mut self, steps: u16) {
         self.break_in = Some(steps);
+    }
+
+    fn print_break_reason(&mut self, break_reason: BreakReason) {
+        match break_reason {
+            BreakReason::UserRequest => (),
+            BreakReason::BreakpointHit(addr) => writeln!(
+                self.output_buffer,
+                "{} {}\n",
+                style("Hit breakpoint at").red(),
+                addr.fmt_addr()
+            )
+            .unwrap(),
+            BreakReason::CondBreakpointHit(addr, cond) => writeln!(
+                self.output_buffer,
+                "{} {} ({:?})\n",
+                style("Memory breakpoint hit at").red(),
+                addr.fmt_addr(),
+                cond
+            )
+            .unwrap(),
+        }
     }
 
     fn print_cpu_state(&mut self, reg: &Registers) {
@@ -213,13 +278,13 @@ impl CpuDebugger {
 
         for _ in 0..10 {
             let instr: ByteInstr =
-                unsafe { std::mem::transmute(board.read8_instant(Addr::from(cpu.reg.pc()))) };
+                unsafe { std::mem::transmute(board.read8_instant(Addr::from(pc))) };
+
+            pc = self.print_single_instr(board, pc, instr);
 
             if instr.is_control_flow_change() {
                 return;
             }
-
-            pc = self.print_single_instr(board, pc, instr);
         }
     }
 
@@ -242,46 +307,168 @@ impl CpuDebugger {
             pc.wrapping_add(1)
         }
     }
+}
 
-    fn cmd_bp<'a, I: Iterator<Item = &'a str>>(&mut self, term: &Term, mut args: I) {
-        let parse_addr_err = |err| Err(format!("Could not parse address: {}", err));
-        let no_addr_err = || Err("No address provided".to_owned());
+mod cmd_bp {
+    use super::*;
 
-        let result = match args.by_ref().next() {
-            Some("set") => match args.next() {
-                Some(addr) => match parse_int::parse(addr) {
-                    Ok(addr) => {
-                        self.breakpoints.push(addr);
-                        Ok(format!("Added breakpoint at {}", addr.fmt_addr()))
-                    }
-                    Err(err) => parse_addr_err(err),
-                },
-                None => no_addr_err(),
-            },
-            Some("rm") => match args.next() {
-                Some(addr) => match parse_int::parse(addr) {
-                    Ok(addr) => {
-                        self.breakpoints.retain(|a| *a != addr);
-                        Ok("Breakpoint removed".to_owned())
-                    }
-                    Err(err) => parse_addr_err(err),
-                },
-                None => no_addr_err(),
-            },
-            Some("clear") => {
-                self.breakpoints.clear();
-                Ok("All breakpoints cleared".to_owned())
-            }
-            _ => Err("Use either 'set', 'rm' or 'clear'".to_owned()),
+    pub fn execute<'a, I: Iterator<Item = &'a str>>(
+        dbg: &mut CpuDebugger,
+        term: &Term,
+        mut args: I,
+    ) {
+        let mut output = String::new();
+
+        match args.by_ref().next() {
+            Some("set") => set(dbg, &mut output, args),
+            Some("mem") => mem(dbg, &mut output, args),
+            Some("list") => list(dbg, &mut output),
+            Some("rm") => rm(dbg, &mut output, args),
+            Some("clear") => clear(dbg, &mut output),
+            _ => writeln!(
+                output,
+                "{}",
+                style("ERROR: Use either 'set', 'mem', 'rm', 'list' or 'clear'").red()
+            )
+            .unwrap(),
+        }
+
+        term.write_line(&output).unwrap();
+    }
+
+    fn set<'a, I: Iterator<Item = &'a str>>(
+        dbg: &mut CpuDebugger,
+        output: &mut String,
+        mut args: I,
+    ) {
+        cmd_bp::exec_with_addr(args.next(), output, |addr, output: &mut String| {
+            dbg.breakpoints.push(addr);
+            writeln!(
+                output,
+                "{} {}",
+                style("Added breakpoint at").green(),
+                addr.fmt_addr()
+            )
+            .unwrap();
+        });
+    }
+
+    fn mem<'a, I: Iterator<Item = &'a str>>(
+        dbg: &mut CpuDebugger,
+        output: &mut String,
+        mut args: I,
+    ) {
+        let bp_added_msg = |addr: u16, output: &mut String| {
+            writeln!(
+                output,
+                "{} {}",
+                style("Breakpoint added at").green(),
+                addr.fmt_addr()
+            )
+            .unwrap()
         };
 
-        match result {
-            Ok(output) => term
-                .write_line(&format!("{}", style(output).green()))
+        match args.by_ref().next() {
+            Some("r") => cmd_bp::exec_with_addr(args.next(), output, |addr, output| {
+                dbg.cond_breakpoints.push((addr, BreakCond::Read));
+                bp_added_msg(addr, output);
+            }),
+            Some("w") => cmd_bp::exec_with_addr(args.next(), output, |addr, output| {
+                dbg.cond_breakpoints.push((addr, BreakCond::Write));
+                bp_added_msg(addr, output);
+            }),
+            Some("rw") => cmd_bp::exec_with_addr(args.next(), output, |addr, output| {
+                dbg.cond_breakpoints.push((addr, BreakCond::ReadWrite));
+                bp_added_msg(addr, output);
+            }),
+            _ => writeln!(output, "{}", style("Use either 'r', 'w', or 'rw'").red()).unwrap(),
+        }
+    }
+
+    fn list(dbg: &CpuDebugger, output: &mut String) {
+        for (idx, bp) in dbg.breakpoints.iter().copied().enumerate() {
+            writeln!(output, " {:>3}. {}", idx, bp.fmt_addr()).unwrap();
+        }
+
+        for (idx, (addr, cond)) in dbg.cond_breakpoints.iter().copied().enumerate() {
+            writeln!(
+                output,
+                " {:>3}. {} ({:?})",
+                idx + dbg.breakpoints.len(),
+                addr.fmt_addr(),
+                cond
+            )
+            .unwrap();
+        }
+    }
+
+    fn rm<'a, I: Iterator<Item = &'a str>>(
+        dbg: &mut CpuDebugger,
+        output: &mut String,
+        mut args: I,
+    ) {
+        match args.next() {
+            Some(idx) => match idx.parse::<usize>() {
+                Ok(idx) => {
+                    if idx < dbg.breakpoints.len() {
+                        dbg.breakpoints.remove(idx);
+                        writeln!(output, "{}", style("Breakpoint removed").green()).unwrap();
+                    } else {
+                        let idx = idx - dbg.breakpoints.len();
+                        if idx < dbg.cond_breakpoints.len() {
+                            dbg.cond_breakpoints.remove(idx);
+                            writeln!(output, "{}", style("Breakpoint removed").green()).unwrap();
+                        } else {
+                            writeln!(output, "{}", style("Invalid breakpoint index").red())
+                                .unwrap();
+                        }
+                    }
+                }
+                Err(err) => writeln!(
+                    output,
+                    "{} {}",
+                    style("Could not parse index:").red(),
+                    style(err).red()
+                )
                 .unwrap(),
-            Err(output) => term
-                .write_line(&format!("{}", style(output).red()))
+            },
+            None => writeln!(
+                output,
+                "{}",
+                style("Needs parameter: Breakpoint index").red()
+            )
+            .unwrap(),
+        }
+    }
+
+    fn clear(dbg: &mut CpuDebugger, output: &mut String) {
+        dbg.breakpoints.clear();
+        dbg.cond_breakpoints.clear();
+        writeln!(output, "{}", style("All breakpoints cleared").green()).unwrap();
+    }
+
+    fn exec_with_addr<F: FnMut(u16, &mut String)>(
+        addr_str: Option<&str>,
+        output: &mut String,
+        mut f: F,
+    ) {
+        match addr_str {
+            Some(addr_str) => match parse_int::parse(addr_str) {
+                Ok(addr) => f(addr, output),
+                Err(err) => writeln!(
+                    output,
+                    "{} {}",
+                    style("Could not parse address:").red(),
+                    style(err).red()
+                )
                 .unwrap(),
+            },
+            None => writeln!(
+                output,
+                "{}",
+                style("Needs argument: Breakpoint address").red()
+            )
+            .unwrap(),
         }
     }
 }
