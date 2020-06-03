@@ -10,6 +10,10 @@ impl LCDS {
         LCDS(0b1000_0000)
     }
 
+    pub fn from_raw(reg: u8) -> LCDS {
+        LCDS(0b1000_0000 | reg)
+    }
+
     pub fn ly_coincidence_interrupt(&self) -> bool {
         self.0.bit(6)
     }

@@ -2,9 +2,10 @@ use super::dbg_instr::OperandType;
 use super::{fmt::FmtNum, CpuEvt, DbgEvtLogger, DbgEvtSrc, PpuEvt};
 use crate::maboy::cartridge::CartridgeMem;
 use crate::maboy::{
-    address::Addr,
+    address::{Addr, PpuReg},
     board::Board,
     cpu::{ByteInstr, CBByteInstr, Registers, CPU, R16, R8},
+    ppu::{LCDC, LCDS, PPU},
     Emulator,
 };
 use console::{style, Style, StyledObject, Term};
@@ -59,6 +60,9 @@ impl CpuDebugger {
 
         writeln!(self.output_buffer, "CPU").unwrap();
         self.print_cpu_state(&emu.cpu.reg);
+
+        writeln!(self.output_buffer, "\nPPU").unwrap();
+        self.print_ppu_state(&emu.board.ppu);
 
         writeln!(self.output_buffer, "\nMem").unwrap();
         self.print_preceding_instr(emu);
@@ -200,6 +204,42 @@ impl CpuDebugger {
             self.output_buffer,
             " Flags: {}",
             style(format!("{:?}", reg.flags())).green()
+        )
+        .unwrap();
+    }
+
+    fn print_ppu_state(&mut self, ppu: &PPU) {
+        fn print_on_off(val: bool) -> StyledObject<&'static str> {
+            if val {
+                style("On").green()
+            } else {
+                style("Off").red()
+            }
+        }
+
+        let lcdc = LCDC(ppu.read_reg(PpuReg::LCDC));
+        writeln!(
+            self.output_buffer,
+            "LCD: {}, WND: {}, OBJ: {} ({:?}), BG: {}",
+            print_on_off(lcdc.lcd_enabled()),
+            print_on_off(lcdc.window_enabled()),
+            print_on_off(lcdc.sprites_enabled()),
+            lcdc.sprite_size(),
+            print_on_off(lcdc.bg_enabled()),
+        )
+        .unwrap();
+
+        let lcds = LCDS::from_raw(ppu.read_reg(PpuReg::LCDS));
+
+        writeln!(
+            self.output_buffer,
+            " SCY: {}, SCX: {}, LY: {}, LYC: {}, WY: {}, WX: {}",
+            ppu.read_reg(PpuReg::SCY).fmt_val(),
+            ppu.read_reg(PpuReg::SCX).fmt_val(),
+            ppu.read_reg(PpuReg::LY).fmt_val(),
+            ppu.read_reg(PpuReg::LYC).fmt_val(),
+            ppu.read_reg(PpuReg::WY).fmt_val(),
+            ppu.read_reg(PpuReg::WX).fmt_val(),
         )
         .unwrap();
     }

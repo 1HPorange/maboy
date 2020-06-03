@@ -33,13 +33,13 @@ pub trait Board {
 }
 
 pub struct BoardImpl<CMem, CpuDbg, PpuDbg> {
-    mem: Memory<CMem>,
-    ppu: PPU,
+    pub mem: Memory<CMem>,
+    pub ppu: PPU,
     pub ir_system: InterruptSystem,
     pub joypad: JoyPad,
-    oam_dma: OamDma,
-    timer: Timer,
-    serial_port: SerialPort,
+    pub oam_dma: OamDma,
+    pub timer: Timer,
+    pub serial_port: SerialPort,
     pub cpu_evt_src: CpuDbg,
     pub ppu_evt_src: PpuDbg,
 }

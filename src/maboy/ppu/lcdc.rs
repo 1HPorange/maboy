@@ -3,6 +3,7 @@ use crate::maboy::util::BitOps;
 #[derive(Copy, Clone)]
 pub struct LCDC(pub u8);
 
+#[derive(Debug)]
 pub enum SpriteSize {
     W8H8,
     W8H16,

@@ -21,6 +21,8 @@ use ppu_registers::PPURegisters;
 use tile_data::TileData;
 use tile_maps::TileMaps;
 
+pub use lcdc::LCDC;
+pub use lcds::LCDS;
 pub use mem_frame::MemPixel;
 
 // TODO: This whole file is kind of messy. Rethink the state machine approach.

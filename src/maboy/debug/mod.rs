@@ -9,7 +9,7 @@ use std::iter::Iterator;
 
 pub use cpu_debugger::CpuDebugger;
 
-pub const MAX_EVTS_LOGGED: usize = 8;
+pub const MAX_EVTS_LOGGED: usize = 50;
 
 pub trait DbgEvtSrc<T> {
     fn push(&mut self, evt: T);
