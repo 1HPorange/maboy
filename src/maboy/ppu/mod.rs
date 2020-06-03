@@ -108,8 +108,9 @@ impl PPU {
             0 => match self.scanline_mcycle {
                 0 => {
                     self.reg.ly = 0;
-                    // TODO: Check if this can cause HBlank interrupts
+                    // TODO: Check if this can cause HBlank interrupts. If yes, use
                     // self.update_mode(ir_system, Mode::HBlank);
+                    self.mode = Mode::HBlank;
                     self.reg.lcds.set_mode(Mode::HBlank);
                 }
                 1 => {
