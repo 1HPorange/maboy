@@ -1,4 +1,4 @@
-use crate::maboy::cpu::{ByteInstr, CBByteInstr};
+use crate::maboy::cpu::ByteInstr;
 
 #[derive(Copy, Clone)]
 pub(super) enum OperandType {
@@ -50,8 +50,8 @@ impl ByteInstr {
             DEC_C => None,
             LD_C_d8 => Some(D8),
             RRCA => None,
-            /// This is sort of a special case - STOP is actually a 2 byte instruction (0x1000),
-            /// with corrupted stop instructions (0x10nn) performing weird stuff.
+            // This is sort of a special case - STOP is actually a 2 byte instruction (0x1000),
+            // with corrupted stop instructions (0x10nn) performing weird stuff.
             STOP => Some(StopOperand),
             LD_DE_d16 => Some(D16),
             LD_xDEx_A => None,

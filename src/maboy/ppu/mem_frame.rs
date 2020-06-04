@@ -1,4 +1,4 @@
-use super::color::{Color, ColorVal};
+use super::color::Color;
 
 const WIDTH: usize = 160;
 const HEIGHT: usize = 144;

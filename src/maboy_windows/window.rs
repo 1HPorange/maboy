@@ -1,7 +1,5 @@
 use super::window_factory::WindowFactory;
-use std::cell::RefCell;
 use std::marker::PhantomPinned;
-use std::rc::Rc;
 use winapi::shared::minwindef::{LPARAM, LRESULT, UINT, WPARAM};
 use winapi::shared::windef::HWND;
 use winapi::um::winuser::{ShowWindow, SW_SHOW};

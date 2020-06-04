@@ -4,11 +4,7 @@ mod operands;
 mod registers;
 
 use super::board::Board;
-use super::cartridge::CartridgeMem;
-use super::{
-    debug::{CpuEvt, DbgEvtSrc},
-    interrupt_system::Interrupt,
-};
+use super::{debug::CpuEvt, interrupt_system::Interrupt};
 use execute::*;
 use operands::{HighRamOperand, HlOperand, Imm8, ImmAddr};
 

@@ -13,7 +13,7 @@ mod serial_port;
 mod timer;
 mod util;
 
-use board::{Board, BoardImpl};
+use board::BoardImpl;
 use cpu::CPU;
 use debug::*;
 use memory::{InternalMem, Memory};

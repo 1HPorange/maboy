@@ -3,7 +3,7 @@ mod oam_dma;
 use super::address::{Addr, IOReg, VideoMemAddr};
 use super::cartridge::CartridgeMem;
 use super::debug::{CpuEvt, DbgEvtSrc, PpuEvt};
-use super::interrupt_system::{Interrupt, InterruptSystem};
+use super::interrupt_system::InterruptSystem;
 use super::joypad::{Buttons, JoyPad};
 use super::memory::Memory;
 use super::ppu::{VideoFrameStatus, PPU};

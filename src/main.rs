@@ -1,6 +1,5 @@
 mod maboy;
 mod maboy_windows;
-// mod maboy_old;
 
 use maboy::debug::*;
 use maboy::*;
@@ -112,7 +111,6 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
         emu.emulate_step();
 
         let perform_os_update = match emu.query_video_frame_status() {
-            // TODO: Think about this frequency
             VideoFrameStatus::NotReady => last_os_update.elapsed() > Duration::from_millis(20),
             VideoFrameStatus::Ready(frame_data) => {
                 frame.copy_from_slice(frame_data);

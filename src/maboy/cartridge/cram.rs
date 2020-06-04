@@ -1,4 +1,3 @@
-use super::battery::CartridgeBattery;
 use super::desc::RamSize;
 use crate::maboy::address::CRamAddr;
 
@@ -19,7 +18,7 @@ impl CartridgeRam for NoCRAM {
 
     fn write(&mut self, _addr: CRamAddr, _val: u8) {}
 
-    fn select_bank(&mut self, bank: u8) {}
+    fn select_bank(&mut self, _bank: u8) {}
 
     fn data(&self) -> &[u8] {
         &[]

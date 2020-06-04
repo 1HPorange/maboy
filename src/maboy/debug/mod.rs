@@ -3,9 +3,8 @@ mod dbg_instr;
 mod fmt;
 
 use super::cpu::{ByteInstr, CBByteInstr, HaltState};
-use super::{address::Addr, interrupt_system::Interrupt};
+use super::interrupt_system::Interrupt;
 use std::collections::VecDeque;
-use std::iter::Iterator;
 
 pub use cpu_debugger::CpuDebugger;
 
@@ -34,7 +33,7 @@ pub enum PpuEvt {}
 pub struct NoDbgLogger;
 
 impl<T> DbgEvtSrc<T> for NoDbgLogger {
-    fn push(&mut self, evt: T) {}
+    fn push(&mut self, _evt: T) {}
 }
 
 pub struct DbgEvtLogger<T>(VecDeque<T>);

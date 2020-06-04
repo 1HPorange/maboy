@@ -1,7 +1,6 @@
 use super::registers::{R16, R8};
 use super::CPU;
 use crate::maboy::board::Board;
-use crate::maboy::cartridge::CartridgeMem;
 
 /// The HL register offers optional "free" INC/DEC on HL after (HL) is resolved.
 /// By providing one of the enum variants as `Operand`, we can automate this.

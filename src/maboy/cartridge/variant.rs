@@ -3,7 +3,6 @@ use super::desc::*;
 use super::mbc::*;
 use super::Cartridge;
 use std::fs;
-use std::path::Path;
 
 pub enum CartridgeVariant {
     RomOnly(Cartridge<NoMBC<NoCRAM>>),

@@ -1,4 +1,3 @@
-mod battery;
 mod cram;
 mod desc;
 mod mbc;
@@ -93,31 +92,3 @@ impl<T: CartridgeMem> CartridgeMem for &mut T {
         T::cram_mut(self)
     }
 }
-
-// impl<MBC: CartridgeMBC> CartridgeMem for &mut Cartridge<MBC> {
-//     type MBC = MBC;
-
-//     fn read_rom(&self, addr: CRomAddr) -> u8 {
-//         self.mbc.read_rom(addr)
-//     }
-
-//     fn write_rom(&mut self, addr: CRomAddr, val: u8) {
-//         self.mbc.write_rom(addr, val);
-//     }
-
-//     fn read_cram(&self, addr: CRamAddr) -> u8 {
-//         self.mbc.read_cram(addr)
-//     }
-
-//     fn write_cram(&mut self, addr: CRamAddr, val: u8) {
-//         self.mbc.write_cram(addr, val);
-//     }
-
-//     fn cram(&self) -> &[u8] {
-//         self.mbc.cram().data()
-//     }
-
-//     fn cram_mut(&mut self) -> &mut [u8] {
-//         self.mbc.cram_mut().data_mut()
-//     }
-// }

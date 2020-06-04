@@ -1,16 +1,14 @@
-use super::dbg_instr::OperandType;
 use super::{fmt::FmtNum, CpuEvt, DbgEvtLogger, DbgEvtSrc, PpuEvt};
 use crate::maboy::cartridge::CartridgeMem;
 use crate::maboy::{
     address::{Addr, PpuReg},
     board::Board,
-    cpu::{ByteInstr, CBByteInstr, Registers, CPU, R16, R8},
+    cpu::{ByteInstr, Registers, CPU, R16, R8},
     ppu::{LCDC, LCDS, PPU},
     Emulator,
 };
-use console::{style, Style, StyledObject, Term};
+use console::{style, StyledObject, Term};
 use std::fmt::Write;
-use std::time::Duration;
 
 // TODO: When printing upcoming instructions, keep in mind that
 // we cannot know those instructions if they live in IO registers

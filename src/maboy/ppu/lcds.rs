@@ -1,6 +1,5 @@
 use super::Mode;
 use crate::maboy::util::BitOps;
-use num_enum::UnsafeFromPrimitive;
 
 #[derive(Copy, Clone)]
 pub struct LCDS(u8);
