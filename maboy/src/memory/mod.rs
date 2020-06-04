@@ -1,7 +1,7 @@
 mod internal_mem;
 
 use super::cartridge::CartridgeMem;
-use crate::maboy::address::{CRomAddr, MemAddr};
+use crate::address::{CRomAddr, MemAddr};
 
 pub use internal_mem::InternalMem;
 

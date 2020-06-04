@@ -1,4 +1,4 @@
-use crate::maboy::util::BitOps;
+use crate::util::BitOps;
 
 #[derive(Copy, Clone)]
 pub struct LCDC(pub u8);

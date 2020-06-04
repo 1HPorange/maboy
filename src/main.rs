@@ -1,6 +1,3 @@
-mod maboy;
-mod maboy_windows;
-
 use maboy::debug::*;
 use maboy::*;
 use maboy_windows::*;

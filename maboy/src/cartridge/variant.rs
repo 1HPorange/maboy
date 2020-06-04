@@ -49,7 +49,7 @@ impl CartridgeVariant {
             return Err(CartridgeParseError::InvalidSize);
         }
 
-        let header = CartridgeDesc(&rom[0x100..=0x14F]);
+        let header = CartridgeDesc::from_header(&rom[0x100..=0x14F]);
 
         if !header.has_valid_checksum() {
             return Err(CartridgeParseError::InvalidChecksum);

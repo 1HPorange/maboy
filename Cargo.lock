@@ -141,6 +141,15 @@ dependencies = [
  "log",
  "num_enum",
  "parse_int",
+]
+
+[[package]]
+name = "maboy_windows"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "env_logger",
+ "maboy",
  "winapi",
  "wio",
 ]

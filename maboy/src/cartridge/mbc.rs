@@ -1,5 +1,5 @@
 use super::cram::CartridgeRam;
-use crate::maboy::address::{CRamAddr, CRomAddr};
+use crate::address::{CRamAddr, CRomAddr};
 use std::pin::Pin;
 
 pub trait CartridgeMBC {

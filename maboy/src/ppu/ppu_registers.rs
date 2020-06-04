@@ -1,7 +1,7 @@
 use super::lcdc::LCDC;
 use super::lcds::LCDS;
 use super::palette::Palette;
-use crate::maboy::address::PpuReg;
+use crate::address::PpuReg;
 
 #[derive(Copy, Clone)]
 pub struct PPURegisters {

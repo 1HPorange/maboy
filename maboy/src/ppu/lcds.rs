@@ -1,5 +1,5 @@
 use super::Mode;
-use crate::maboy::util::BitOps;
+use crate::util::BitOps;
 
 #[derive(Copy, Clone)]
 pub struct LCDS(u8);

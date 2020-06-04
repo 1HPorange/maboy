@@ -1,6 +1,6 @@
 use super::hresult_error::*;
 use super::window::Window;
-use crate::maboy::MemPixel;
+use maboy::MemPixel;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 use std::pin::Pin;

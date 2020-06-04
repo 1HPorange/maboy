@@ -1,6 +1,6 @@
 use super::{fmt::FmtNum, CpuEvt, DbgEvtLogger, DbgEvtSrc, PpuEvt};
-use crate::maboy::cartridge::CartridgeMem;
-use crate::maboy::{
+use crate::cartridge::CartridgeMem;
+use crate::{
     address::{Addr, PpuReg},
     board::Board,
     cpu::{ByteInstr, Registers, CPU, R16, R8},

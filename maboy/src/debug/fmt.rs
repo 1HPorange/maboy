@@ -1,6 +1,6 @@
 use super::dbg_instr::OperandType;
-use crate::maboy::address::{Addr, IOReg};
-use crate::maboy::{board::Board, cpu::CBByteInstr};
+use crate::address::{Addr, IOReg};
+use crate::{board::Board, cpu::CBByteInstr};
 use console::{style, StyledObject};
 use std::convert::TryFrom;
 

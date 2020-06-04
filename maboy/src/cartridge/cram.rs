@@ -1,5 +1,5 @@
 use super::desc::RamSize;
-use crate::maboy::address::CRamAddr;
+use crate::address::CRamAddr;
 
 pub trait CartridgeRam {
     fn read(&self, addr: CRamAddr) -> u8;

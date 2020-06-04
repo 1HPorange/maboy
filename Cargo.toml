@@ -1,5 +1,5 @@
 [package]
-name = "maboy"
+name = "maboy_windows"
 version = "0.1.0"
 authors = ["Markus Webel <m@rkus.online>"]
 edition = "2018"
@@ -7,17 +7,9 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-log = "0.4"
-env_logger = "0.7"
+maboy = { path = "maboy" }
 bitflags = "1.2"
-fixedbitset = "0.3"
-num_enum = "0.4"
-
-# Only keep this as long as we have the ugly CLI debugger
-console = { version = "0.11", features = [] }
-parse_int = "0.4"
-
-# TODO: Hide this behind platform specific compilation
+env_logger = "0.7"
 winapi = { version = "0.3", features = ["libloaderapi", "winuser", "errhandlingapi", "windef", "minwindef", "d3d11", "d3dcommon", "dxgi1_2", "synchapi", "handleapi", "profileapi", "xinput"] }
 wio = "0.2" # Because of their pretty ComPtr implementation
 

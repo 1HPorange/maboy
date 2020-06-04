@@ -1,6 +1,6 @@
-use crate::maboy::address::{Addr, VideoMemAddr};
-use crate::maboy::board::{Board, BoardImpl};
-use crate::maboy::{
+use crate::address::{Addr, VideoMemAddr};
+use crate::board::{Board, BoardImpl};
+use crate::{
     cartridge::CartridgeMem,
     debug::{CpuEvt, DbgEvtSrc, PpuEvt},
 };

@@ -1,4 +1,4 @@
-use crate::maboy::cpu::ByteInstr;
+use crate::cpu::ByteInstr;
 
 #[derive(Copy, Clone)]
 pub(super) enum OperandType {

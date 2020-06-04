@@ -18,7 +18,7 @@ use cpu::CPU;
 use debug::*;
 use memory::{InternalMem, Memory};
 
-pub use cartridge::{Cartridge, CartridgeMem, CartridgeVariant};
+pub use cartridge::*;
 
 pub use joypad::Buttons;
 pub use ppu::{MemPixel, VideoFrameStatus};

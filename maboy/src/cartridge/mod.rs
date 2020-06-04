@@ -7,6 +7,7 @@ use super::address::{CRamAddr, CRomAddr};
 use cram::CartridgeRam;
 use mbc::CartridgeMBC;
 
+pub use desc::CartridgeDesc;
 pub use variant::CartridgeVariant;
 
 pub struct Cartridge<MBC> {
@@ -17,6 +18,10 @@ pub struct Cartridge<MBC> {
 impl<MBC: CartridgeMBC> Cartridge<MBC> {
     fn new(path: String, mbc: MBC) -> Cartridge<MBC> {
         Cartridge { path, mbc }
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
     }
 }
 
@@ -32,8 +37,6 @@ pub trait CartridgeMem {
     fn cram(&self) -> &[u8];
     fn cram_mut(&mut self) -> &mut [u8];
 }
-
-// TODO: Avoid code duplication via macro here
 
 impl<MBC: CartridgeMBC> CartridgeMem for Cartridge<MBC> {
     type MBC = MBC;

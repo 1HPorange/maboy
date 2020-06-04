@@ -1,8 +1,8 @@
 use super::operands::{Dst8, Src8};
 use super::registers::*;
 use super::CPU;
-use crate::maboy::board::Board;
-use crate::maboy::{debug::CpuEvt, util::BitOps};
+use crate::board::Board;
+use crate::{debug::CpuEvt, util::BitOps};
 
 pub fn ld8<B: Board, D: Dst8, S: Src8>(cpu: &mut CPU, board: &mut B, dst: D, src: S) {
     let val = src.read(cpu, board);

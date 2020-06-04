@@ -1,5 +1,5 @@
-use crate::maboy::Buttons;
 use bitflags::bitflags;
+use maboy::Buttons;
 use std::mem::MaybeUninit;
 use winapi::shared::minwindef::DWORD;
 use winapi::shared::winerror::ERROR_SUCCESS;

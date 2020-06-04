@@ -10,8 +10,8 @@ mod sprite;
 mod tile_data;
 mod tile_maps;
 
-use crate::maboy::address::{PpuReg, VideoMemAddr};
-use crate::maboy::interrupt_system::{Interrupt, InterruptSystem};
+use crate::address::{PpuReg, VideoMemAddr};
+use crate::interrupt_system::{Interrupt, InterruptSystem};
 use mem_frame::MemFrame;
 use num_enum::UnsafeFromPrimitive;
 use oam::OAM;

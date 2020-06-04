@@ -1,9 +1,14 @@
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
 
-pub struct CartridgeDesc<'a>(pub &'a [u8]);
+pub struct CartridgeDesc<'a>(&'a [u8]);
 
 impl CartridgeDesc<'_> {
+    /// The cartridge header sits at bytes 0x100..=0x14F
+    pub fn from_header(header: &[u8]) -> CartridgeDesc {
+        CartridgeDesc(header)
+    }
+
     pub fn title(&self) -> String {
         // Title is only null-terminated if less than 16 bytes,
         // so we can't rely on that
