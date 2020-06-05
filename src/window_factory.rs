@@ -1,4 +1,4 @@
-use super::util::EncodeWithNulTerm;
+use super::util::EncodeWideNulTerm;
 use super::window::{MsgHandler, MsgHandlerResult, Window};
 use std::cell::RefCell;
 use std::ffi::OsString;
@@ -39,8 +39,8 @@ impl WindowFactory {
         msg_handler: MsgHandler,
     ) -> Result<Pin<Box<Window>>, WindowCreateError> {
         unsafe {
-            let wnd_class_name = OsString::from("MaBoy_Game_Window").encode_wide_with_term();
-            let wnd_name = OsString::from(title).encode_wide_with_term();
+            let wnd_class_name = OsString::from("MaBoy_Game_Window").encode_wide_nul_term();
+            let wnd_name = OsString::from(title).encode_wide_nul_term();
 
             let hinstance = GetModuleHandleW(ptr::null());
 

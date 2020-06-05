@@ -21,15 +21,19 @@ fn main() {
 
     let mut command_line_args = std::env::args();
 
-    // Parse argument as path to ROM
-    let rom_path = command_line_args
-        .by_ref()
-        .skip(1)
-        .next()
-        .expect("Please provide the path to a GameBoy ROM (.gb) as a command-line argument.");
+    // Show file open dialog so user can select a ROM
+    let rom_path = open_file_dialog(
+        "Please select a cartridge rom",
+        vec![FileFilter {
+            display_name: "Cartridge ROM",
+            file_types: vec!["*.GB", "*.ROM"],
+        }],
+    )
+    .map(|s| s.into_string().expect("Could not read rom path"))
+    .expect("Could not open ROM file");
 
     // Parse Cartridge
-    let cartridge = CartridgeVariant::from_file(rom_path).expect("Could not open ROM file");
+    let cartridge = CartridgeVariant::from_file(rom_path).expect("Could not open rom file");
 
     match cartridge {
         CartridgeVariant::RomOnly(c) => run_emulation(c),

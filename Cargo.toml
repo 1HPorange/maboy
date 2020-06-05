@@ -10,7 +10,8 @@ edition = "2018"
 maboy = { path = "maboy" }
 bitflags = "1.2"
 env_logger = "0.7"
-winapi = { version = "0.3", features = ["libloaderapi", "winuser", "errhandlingapi", "windef", "minwindef", "d3d11", "d3dcommon", "dxgi1_2", "synchapi", "handleapi", "profileapi", "xinput"] }
+winapi = { version = "0.3", features = ["libloaderapi", "winuser", "errhandlingapi", "windef", "minwindef", 
+    "d3d11", "d3dcommon", "dxgi1_2", "synchapi", "handleapi", "profileapi", "xinput", "commdlg"] }
 wio = "0.2" # Because of their pretty ComPtr implementation
 
 # Uncomment if you want debug symbols in your release build (useful for profiling)
