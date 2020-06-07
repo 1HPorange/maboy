@@ -7,8 +7,19 @@ use winapi::shared::minwindef::TRUE;
 use winapi::um::commdlg::{GetOpenFileNameW, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OPENFILENAMEW};
 
 pub struct FileFilter {
+    /// File type displayed in the file-type dropdown
     pub display_name: &'static str,
+    /// Accepted file endings in upper-case letters, including the leading . (like ".JPG")
     pub file_types: Vec<&'static str>,
+}
+
+impl FileFilter {
+    pub fn new(display_name: &'static str, file_types: Vec<&'static str>) -> FileFilter {
+        FileFilter {
+            display_name,
+            file_types,
+        }
+    }
 }
 
 pub fn open_file_dialog(title: &str, filters: Vec<FileFilter>) -> Option<OsString> {

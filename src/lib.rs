@@ -1,5 +1,6 @@
 // TODO: Become lib
 
+mod expect_msg_box;
 mod gamepad_input;
 mod gfx;
 mod hresult_error;
@@ -10,6 +11,7 @@ mod window;
 mod window_factory;
 mod window_input;
 
+pub use expect_msg_box::ExpectMsgBox;
 pub use gamepad_input::GamePadInput;
 pub use gfx::{GfxDevice, GfxFrame, GfxWindow};
 pub use open_file_dialog::{open_file_dialog, FileFilter};

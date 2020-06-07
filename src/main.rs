@@ -24,23 +24,20 @@ fn main() {
     // Show file open dialog so user can select a ROM
     let rom_path = open_file_dialog(
         "Please select a cartridge rom",
-        vec![FileFilter {
-            display_name: "Cartridge ROM",
-            file_types: vec!["*.GB", "*.ROM"],
-        }],
+        vec![FileFilter::new("Cartridge ROM", vec!["*.GB", "*.ROM"])],
     )
-    .map(|s| s.into_string().expect("Could not read rom path"))
-    .expect("Could not open ROM file");
+    .map(|s| s.into_string().expect_msg_box("Could not read rom path"))
+    .expect_msg_box("Could not open ROM file");
 
     // Parse Cartridge
-    let cartridge = CartridgeVariant::from_file(rom_path).expect("Could not open rom file");
+    let cartridge = CartridgeVariant::from_file(rom_path).expect_msg_box("Could not open rom file");
 
     match cartridge {
         CartridgeVariant::RomOnly(c) => run_emulation(c),
         CartridgeVariant::MBC1NoRam(c) => run_emulation(c),
         CartridgeVariant::MBC1UnbankedRamNoBat(c) => run_emulation(c),
         CartridgeVariant::MBC1UnbankedRamBat(c) => run_with_savegame(c, command_line_args.next())
-            .expect("Failed to load or store savegame"),
+            .expect_msg_box("Failed to load or store savegame"),
     };
 }
 
@@ -80,21 +77,23 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
                     MsgHandlerResult::RunDefaultMsgHandler
                 }),
             )
-            .expect("Could not create game window")
+            .expect_msg_box("Could not create game window")
     };
     game_window.show();
 
     // Initialize DirectX to draw into the window
-    let gfx_device = GfxDevice::new().expect("Could not access graphics device");
+    let gfx_device = GfxDevice::new().expect_msg_box("Could not access graphics device");
     let mut gfx_window = gfx_device
         .create_gfx_window(&game_window, 160, 144)
-        .expect("Could not attach graphics device to game window");
+        .expect_msg_box("Could not attach graphics device to game window");
 
     // Clear first frame to black (screen off)
     {
         let mut frame = gfx_window.next_frame();
         frame.clear(&[0.0, 0.0, 0.0, 1.0]);
-        frame.present(false).expect("Could not present frame");
+        frame
+            .present(false)
+            .expect_msg_box("Could not present frame");
     }
 
     let mut frame = gfx_window.next_frame();
@@ -103,7 +102,7 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
 
     // Initialize throttle clock
     let mut os_timing = OsTiming::new(59.7)
-        .expect("Could not create OS timer. This timer is used to throttle the game.");
+        .expect_msg_box("Could not create OS timer. This timer is used to throttle the game.");
 
     loop {
         #[cfg(debug_assertions)]
@@ -173,7 +172,9 @@ fn present_frame(frame: GfxFrame, os_timing: &mut OsTiming) {
     os_timing.wait_frame_remaining().unwrap();
     os_timing.notify_frame_start().unwrap();
 
-    frame.present(false).expect("Could not present frame");
+    frame
+        .present(false)
+        .expect_msg_box("Could not present frame");
 }
 
 // TODO: Make this signature nice by lower trait requirements for Emulator function calls

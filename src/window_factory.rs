@@ -1,3 +1,4 @@
+use super::expect_msg_box::ExpectMsgBox;
 use super::util::EncodeWideNulTerm;
 use super::window::{MsgHandler, MsgHandlerResult, Window};
 use std::cell::RefCell;
@@ -144,7 +145,7 @@ unsafe extern "system" fn wnd_proc_dispatch(
             let hwnd_index = active_windows
                 .iter()
                 .position(|other_hwnd| hwnd == *other_hwnd)
-                .expect("Destroyed window that wasn't created via WindowFactory");
+                .expect_msg_box("Destroyed window that wasn't created via WindowFactory");
 
             active_windows.remove(hwnd_index);
 
