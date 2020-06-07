@@ -19,14 +19,17 @@ impl<MBC: CartridgeMBC> Cartridge<MBC> {
     fn new(path: String, mbc: MBC) -> Cartridge<MBC> {
         Cartridge { path, mbc }
     }
-
-    pub fn path(&self) -> &str {
-        &self.path
-    }
 }
 
 pub trait CartridgeMem {
     type MBC: CartridgeMBC;
+
+    /// Path to the where the ROM was orignally loaded from. The emulator doesn't
+    /// really care about this, but it can be interesting if you want to do stuff
+    /// like automatically detect savegames.
+    /// It feels weird to have this function on this particular trait, so it might
+    /// move in the future.
+    fn path(&self) -> &str;
 
     fn read_rom(&self, addr: CRomAddr) -> u8;
     fn write_rom(&mut self, addr: CRomAddr, val: u8);
@@ -40,6 +43,10 @@ pub trait CartridgeMem {
 
 impl<MBC: CartridgeMBC> CartridgeMem for Cartridge<MBC> {
     type MBC = MBC;
+
+    fn path(&self) -> &str {
+        &self.path
+    }
 
     fn read_rom(&self, addr: CRomAddr) -> u8 {
         self.mbc.read_rom(addr)
@@ -70,6 +77,10 @@ impl<MBC: CartridgeMBC> CartridgeMem for Cartridge<MBC> {
 
 impl<T: CartridgeMem> CartridgeMem for &mut T {
     type MBC = T::MBC;
+
+    fn path(&self) -> &str {
+        T::path(self)
+    }
 
     fn read_rom(&self, addr: CRomAddr) -> u8 {
         T::read_rom(self, addr)

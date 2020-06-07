@@ -1,6 +1,6 @@
 use super::util::EncodeWideNulTerm;
 use std::fmt::Debug;
-use std::{error::Error, ffi::OsString, ptr, sync::Once};
+use std::{ffi::OsString, ptr, sync::Once};
 use winapi::um::winuser::MessageBoxW;
 use winapi::um::winuser::MB_OK;
 

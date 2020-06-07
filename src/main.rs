@@ -19,12 +19,13 @@ const DEBUG_KEY: KeyboardKey = KeyboardKey::G;
 fn main() {
     env_logger::init();
 
-    let mut command_line_args = std::env::args();
-
     // Show file open dialog so user can select a ROM
     let rom_path = open_file_dialog(
         "Please select a cartridge rom",
-        vec![FileFilter::new("Cartridge ROM", vec!["*.GB", "*.ROM"])],
+        vec![FileFilter::new(
+            "Cartridge ROM (.gb, .rom)",
+            vec!["*.GB", "*.ROM"],
+        )],
     )
     .map(|s| s.into_string().expect_msg_box("Could not read rom path"))
     .expect_msg_box("Could not open ROM file");
@@ -36,8 +37,9 @@ fn main() {
         CartridgeVariant::RomOnly(c) => run_emulation(c),
         CartridgeVariant::MBC1NoRam(c) => run_emulation(c),
         CartridgeVariant::MBC1UnbankedRamNoBat(c) => run_emulation(c),
-        CartridgeVariant::MBC1UnbankedRamBat(c) => run_with_savegame(c, command_line_args.next())
-            .expect_msg_box("Failed to load or store savegame"),
+        CartridgeVariant::MBC1UnbankedRamBat(c) => {
+            run_with_savegame(c).expect_msg_box("Failed to load or store savegame")
+        }
     };
 }
 
@@ -144,26 +146,24 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
     }
 }
 
-fn run_with_savegame<C: CartridgeMem>(
-    mut cartridge: C,
-    savegame_path: Option<String>,
-) -> Result<(), std::io::Error> {
+fn run_with_savegame<C: CartridgeMem>(mut cartridge: C) -> Result<(), std::io::Error> {
     use std::fs::File;
     use std::io::Read;
+    use std::path::PathBuf;
 
-    // Load savegame if path was provided
-    if let Some(path) = &savegame_path {
-        if let Ok(mut save_file) = File::open(path) {
-            save_file.read_exact(cartridge.cram_mut())?;
-        }
+    // Try to guess savegame path from rom path
+    let mut sav_path = PathBuf::from(cartridge.path());
+    sav_path.set_extension("sav");
+
+    // If it exists, we read it into the cartridge RAM
+    if let Ok(mut save_file) = File::open(&sav_path) {
+        save_file.read_exact(cartridge.cram_mut())?;
     }
 
     run_emulation(&mut cartridge);
 
     // Store savegame if path was provided
-    if let Some(path) = &savegame_path {
-        std::fs::write(path, cartridge.cram())?;
-    }
+    std::fs::write(sav_path, cartridge.cram())?;
 
     Ok(())
 }
