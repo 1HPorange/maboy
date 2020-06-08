@@ -1,4 +1,4 @@
-use super::lcdc::LCDC;
+use super::lcdc::{SpriteSize, LCDC};
 
 /// Memory from 0x9800 to 0x9FFF.
 /// Contains ids for Window and Background tiles.
@@ -52,8 +52,17 @@ impl TileMaps {
 }
 
 impl TileRowAddr {
-    pub fn from_sprite_tile_id(tile_id: u8, subidx_y: u8) -> TileRowAddr {
-        TileRowAddr(tile_id as u16 * 16 + subidx_y as u16 * 2)
+    pub fn from_sprite_tile_id(tile_id: u8, subidx_y: u8, sprite_size: SpriteSize) -> TileRowAddr {
+        match sprite_size {
+            SpriteSize::W8H8 => TileRowAddr(tile_id as u16 * 16 + subidx_y as u16 * 2),
+            SpriteSize::W8H16 => {
+                if subidx_y < 8 {
+                    TileRowAddr((tile_id & 0xFE) as u16 * 16 + subidx_y as u16 * 2)
+                } else {
+                    TileRowAddr((tile_id | 0x01) as u16 * 16 + (subidx_y - 8) as u16 * 2)
+                }
+            }
+        }
     }
 
     pub fn into_vram_addr(self) -> u16 {

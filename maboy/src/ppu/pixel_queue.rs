@@ -166,10 +166,16 @@ impl PixelQueue {
         sprite: Sprite,
         sprite_line: u8,
     ) {
+        let sprite_size = ppu_reg.lcdc.sprite_size();
+
         let row_addr = if sprite.flags.y_flipped() {
-            TileRowAddr::from_sprite_tile_id(sprite.id, 7 - sprite_line)
+            TileRowAddr::from_sprite_tile_id(
+                sprite.id,
+                sprite_size.height() - sprite_line,
+                sprite_size,
+            )
         } else {
-            TileRowAddr::from_sprite_tile_id(sprite.id, sprite_line)
+            TileRowAddr::from_sprite_tile_id(sprite.id, sprite_line, sprite_size)
         };
 
         let row = if sprite.flags.x_flipped() {

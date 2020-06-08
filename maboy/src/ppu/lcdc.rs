@@ -3,7 +3,7 @@ use crate::util::BitOps;
 #[derive(Copy, Clone)]
 pub struct LCDC(pub u8);
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum SpriteSize {
     W8H8,
     W8H16,
@@ -54,5 +54,16 @@ impl LCDC {
 
     pub fn bg_enabled(&self) -> bool {
         self.0.bit(0)
+    }
+}
+
+// TODO: This could be implemented as a generic paramter of OAM and PixelQueue...
+// Saves a few branches per sprite, but probably not worth it.
+impl SpriteSize {
+    pub fn height(&self) -> u8 {
+        match self {
+            SpriteSize::W8H8 => 8,
+            SpriteSize::W8H16 => 16,
+        }
     }
 }

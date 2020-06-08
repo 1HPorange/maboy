@@ -8,6 +8,7 @@ pub struct OAM {
     /// sorted by their x coordinate (ascending)
     visible_sorted: Vec<u8>,
     is_dirty: bool,
+    sprite_size: SpriteSize,
 }
 
 const SPRITE_WIDTH: usize = 4;
@@ -18,13 +19,16 @@ impl OAM {
             mem: vec![0; 0xFEA0 - 0xFE00].into_boxed_slice(),
             visible_sorted: Vec::with_capacity(40),
             is_dirty: true,
+            sprite_size: SpriteSize::W8H8,
         }
     }
 
     pub fn notify_lcdc_changed(&mut self, lcdc: LCDC) {
-        // TODO: Support large sprites
-        assert!(matches!(lcdc.sprite_size(), SpriteSize::W8H8))
-        // TODO: Set dirty
+        // If sprite size was changed, we have to rebuild our visible sprite cache
+        if self.sprite_size != lcdc.sprite_size() {
+            self.sprite_size = lcdc.sprite_size();
+            self.is_dirty = true;
+        }
     }
 
     pub fn sprites_in_line<'a>(&'a self, ly: u8) -> impl 'a + Iterator<Item = Sprite> {
@@ -33,15 +37,14 @@ impl OAM {
         // TODO: Check if this is true... Sprites with higher priority, but color 0b00,
         // might actually STILL draw over other sprites at the same X. In that case, the `dedup_by` call
         // below is incorrect, and we need more complicated handling of the situation.
-        // use itertools::Itertools;
 
         self.visible_sorted
             .iter()
             .copied()
             .map(move |id| (id, self.mem[id as usize * SPRITE_WIDTH] as i16 - 16))
             .filter(move |(_, sprite_y)| {
-                // TODO: Support large sprites
-                ly as i16 >= *sprite_y && (ly as i16) < *sprite_y + 8
+                (ly as i16) >= *sprite_y
+                    && (ly as i16) < *sprite_y + self.sprite_size.height() as i16
             })
             .take(10)
             .map(move |(id, _sprite_y)| {
@@ -63,8 +66,7 @@ impl OAM {
             let sprite_y = self.mem[sprite_id as usize * SPRITE_WIDTH];
             let sprite_x = self.mem[sprite_id as usize * SPRITE_WIDTH + 1];
 
-            // TODO: Support large sprites
-            if sprite_y > 8 && sprite_y < 160 && sprite_x < 168 {
+            if sprite_y > self.sprite_size.height() && sprite_y < 160 && sprite_x < 168 {
                 self.visible_sorted.push(sprite_id);
             }
         }
