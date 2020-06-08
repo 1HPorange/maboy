@@ -78,6 +78,42 @@ pub enum CartridgeType {
     HuC1_RAM_BATTERY = 0xFF,
 }
 
+impl CartridgeType {
+    pub fn has_battery(&self) -> bool {
+        match self {
+            CartridgeType::ROM_ONLY => false,
+            CartridgeType::MBC1 => false,
+            CartridgeType::MBC1_RAM => false,
+            CartridgeType::MBC1_RAM_BATTERY => true,
+            CartridgeType::MBC2 => false,
+            CartridgeType::MBC2_BATTERY => true,
+            CartridgeType::ROM_RAM => false,
+            CartridgeType::ROM_RAM_BATTERY => true,
+            CartridgeType::MMM01 => false,
+            CartridgeType::MMM01_RAM => false,
+            CartridgeType::MMM01_RAM_BATTERY => true,
+            CartridgeType::MBC3_TIMER_BATTERY => true,
+            CartridgeType::MBC3_TIMER_RAM_BATTERY => true,
+            CartridgeType::MBC3 => false,
+            CartridgeType::MBC3_RAM => false,
+            CartridgeType::MBC3_RAM_BATTERY => true,
+            CartridgeType::MBC4 => false,
+            CartridgeType::MBC4_RAM => false,
+            CartridgeType::MBC4_RAM_BATTERY => true,
+            CartridgeType::MBC5 => false,
+            CartridgeType::MBC5_RAM => false,
+            CartridgeType::MBC5_RAM_BATTERY => true,
+            CartridgeType::MBC5_RUMBLE => false,
+            CartridgeType::MBC5_RUMBLE_RAM => false,
+            CartridgeType::MBC5_RUMBLE_RAM_BATTERY => true,
+            CartridgeType::POCKET_CAMERA => false,
+            CartridgeType::BANDAI_TAMA5 => false,
+            CartridgeType::HuC3 => false,
+            CartridgeType::HuC1_RAM_BATTERY => true,
+        }
+    }
+}
+
 #[derive(TryFromPrimitive, Debug, Copy, Clone)]
 #[repr(u8)]
 pub enum RomSize {

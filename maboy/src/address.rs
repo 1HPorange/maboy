@@ -24,8 +24,15 @@ pub enum CRomAddr {
     CROMn(u16), // 0x4000 - 0x7FFF
 }
 
+/// Address in CRam, guaranteed to be < 0x2000
 #[derive(Debug, Copy, Clone)]
-pub struct CRamAddr(pub u16);
+pub struct CRamAddr(u16);
+
+impl CRamAddr {
+    pub fn raw(self) -> u16 {
+        self.0
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 pub enum VideoMemAddr {
@@ -33,10 +40,6 @@ pub enum VideoMemAddr {
     TileMaps(u16), // 0x9800 - 0x9FFF
     OAM(u16),      // 0xFE00 - 0xFE9F
 }
-
-// TODO: Think about moving Unusable, IO, and IE into this struct so
-// they can share code... is that necessary???
-pub enum _HighAddr {}
 
 // 0xFF00 - 0xFF7F
 #[derive(Debug, Copy, Clone)]

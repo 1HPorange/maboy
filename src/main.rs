@@ -33,17 +33,20 @@ fn main() {
     // Parse Cartridge
     let cartridge = CartridgeVariant::from_file(rom_path).expect_msg_box("Could not open rom file");
 
+    // TODO: This ugly thing should move inside the emulator...
     match cartridge {
-        CartridgeVariant::RomOnly(c) => run_emulation(c),
-        CartridgeVariant::MBC1NoRam(c) => run_emulation(c),
-        CartridgeVariant::MBC1UnbankedRamNoBat(c) => run_emulation(c),
-        CartridgeVariant::MBC1UnbankedRamBat(c) => {
-            run_with_savegame(c).expect_msg_box("Failed to load or store savegame")
-        }
+        CartridgeVariant::Rom(c) => run(c),
+        CartridgeVariant::RomRam(c) => run(c),
+        CartridgeVariant::RomRamBat(c) => run_with_savegame(c),
+        CartridgeVariant::MBC1(c) => run(c),
+        CartridgeVariant::MBC1Ram(c) => run(c),
+        CartridgeVariant::MBC1RamBat(c) => run_with_savegame(c),
+        CartridgeVariant::MBC2(c) => run(c),
+        CartridgeVariant::MBC2Bat(c) => run_with_savegame(c),
     };
 }
 
-fn run_emulation<C: CartridgeMem>(cartridge: C) {
+fn run<C: CartridgeMem>(cartridge: C) {
     let mut emu = Emulator::new(cartridge, cpu_logger(), NoDbgLogger);
 
     #[cfg(debug_assertions)]
@@ -146,7 +149,7 @@ fn run_emulation<C: CartridgeMem>(cartridge: C) {
     }
 }
 
-fn run_with_savegame<C: CartridgeMem>(mut cartridge: C) -> Result<(), std::io::Error> {
+fn run_with_savegame<C: CartridgeMem>(mut cartridge: C) {
     use std::fs::File;
     use std::io::Read;
     use std::path::PathBuf;
@@ -157,15 +160,15 @@ fn run_with_savegame<C: CartridgeMem>(mut cartridge: C) -> Result<(), std::io::E
 
     // If it exists, we read it into the cartridge RAM
     if let Ok(mut save_file) = File::open(&sav_path) {
-        save_file.read_exact(cartridge.cram_mut())?;
+        save_file
+            .read_exact(cartridge.cram_mut())
+            .expect_msg_box("Failed to load savegame");
     }
 
-    run_emulation(&mut cartridge);
+    run(&mut cartridge);
 
     // Store savegame
-    std::fs::write(sav_path, cartridge.cram())?;
-
-    Ok(())
+    std::fs::write(sav_path, cartridge.cram()).expect_msg_box("Failed to write savegame to disk");
 }
 
 fn present_frame(frame: GfxFrame, os_timing: &mut OsTiming) {
