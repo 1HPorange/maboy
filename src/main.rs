@@ -162,7 +162,7 @@ fn run_with_savegame<C: CartridgeMem>(mut cartridge: C) -> Result<(), std::io::E
 
     run_emulation(&mut cartridge);
 
-    // Store savegame if path was provided
+    // Store savegame
     std::fs::write(sav_path, cartridge.cram())?;
 
     Ok(())

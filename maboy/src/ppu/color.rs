@@ -12,7 +12,8 @@ pub enum ColorVal {
 }
 
 impl Color {
-    pub unsafe fn from_u8_unsafe(col_raw: u8) -> Color {
+    pub unsafe fn from_u8_unchecked(col_raw: u8) -> Color {
+        debug_assert!(col_raw <= 0b11);
         Color(col_raw)
     }
 
