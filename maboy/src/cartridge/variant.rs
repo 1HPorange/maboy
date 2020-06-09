@@ -23,19 +23,22 @@ pub enum CartridgeParseError {
 
     // Invalid/Missing cartridge data
     /// Size is not a multiple of 0x4000
-    InvalidSize,
-
-    /// Header checksum is incorrect
-    InvalidChecksum,
-
-    /// Header declares unknown cartridge type
-    InvalidCartridgeType,
-
-    /// Header declares unknown ROM size
     InvalidRomSize,
 
+    // Header size is not 0x50 bytes (or larger)
+    InvalidHeaderSize,
+
+    /// Header checksum is incorrect
+    InvalidHeaderChecksum,
+
+    /// Header declares unknown cartridge type
+    InvalidHeaderCartridgeType,
+
+    /// Header declares unknown ROM size
+    InvalidHeaderRomSize,
+
     /// Header declares unknown RAM size
-    InvalidRamSize,
+    InvalidHeaderRamSize,
 
     /// Header MIGHT be valid, but this combination of
     /// cartridge type, ROM size and RAM size is currently
@@ -52,24 +55,24 @@ impl CartridgeVariant {
         // This condition sets up an important invariant that a lot of code relies upon,
         // for example the MBC code. Change it only if you are sure about what you're doing.
         if rom.len() < 0x8000 || rom.len() % 0x4000 != 0 {
-            return Err(CartridgeParseError::InvalidSize);
+            return Err(CartridgeParseError::InvalidRomSize);
         }
 
         let header = CartridgeDesc::from_header(&rom[0x100..=0x14F]);
 
         if !header.has_valid_checksum() {
-            return Err(CartridgeParseError::InvalidChecksum);
+            return Err(CartridgeParseError::InvalidHeaderChecksum);
         }
 
         let ctype = header
             .cartridge_type()
-            .ok_or(CartridgeParseError::InvalidCartridgeType)?;
+            .ok_or(CartridgeParseError::InvalidHeaderCartridgeType)?;
         let rom_size = header
             .rom_size()
-            .ok_or(CartridgeParseError::InvalidRomSize)?;
+            .ok_or(CartridgeParseError::InvalidHeaderRomSize)?;
         let ram_size = header
             .ram_size()
-            .ok_or(CartridgeParseError::InvalidRamSize)?;
+            .ok_or(CartridgeParseError::InvalidHeaderRamSize)?;
 
         let err_unsupported = Err(CartridgeParseError::Unsupported(ctype, rom_size, ram_size));
 

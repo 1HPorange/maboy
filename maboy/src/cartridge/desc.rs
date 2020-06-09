@@ -1,3 +1,4 @@
+use super::variant::CartridgeParseError;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
 
@@ -6,6 +7,7 @@ pub struct CartridgeDesc<'a>(&'a [u8]);
 impl CartridgeDesc<'_> {
     /// The cartridge header sits at bytes 0x100..=0x14F
     pub fn from_header(header: &[u8]) -> CartridgeDesc {
+        debug_assert!(header.len() >= 0x50);
         CartridgeDesc(header)
     }
 
