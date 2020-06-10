@@ -8,45 +8,30 @@ use cram::CartridgeRam;
 use mbc::CartridgeMBC;
 
 pub use desc::CartridgeDesc;
-pub use variant::CartridgeVariant;
+pub use variant::{CartridgeParseError, CartridgeVariant};
 
-pub struct Cartridge<MBC> {
-    path: String,
+pub struct CartridgeImpl<MBC> {
     mbc: MBC,
 }
 
-impl<MBC: CartridgeMBC> Cartridge<MBC> {
-    fn new(path: String, mbc: MBC) -> Cartridge<MBC> {
-        Cartridge { path, mbc }
+impl<MBC: CartridgeMBC> CartridgeImpl<MBC> {
+    fn new(mbc: MBC) -> CartridgeImpl<MBC> {
+        CartridgeImpl { mbc }
     }
 }
 
-pub trait CartridgeMem {
+pub trait Cartridge: Savegame + Metadata {
     type MBC: CartridgeMBC;
-
-    /// Path to the where the ROM was orignally loaded from. The emulator doesn't
-    /// really care about this, but it can be interesting if you want to do stuff
-    /// like automatically detect savegames.
-    /// It feels weird to have this function on this particular trait, so it might
-    /// move in the future.
-    fn path(&self) -> &str;
 
     fn read_rom(&self, addr: CRomAddr) -> u8;
     fn write_rom(&mut self, addr: CRomAddr, val: u8);
 
     fn read_cram(&self, addr: CRamAddr) -> u8;
     fn write_cram(&mut self, addr: CRamAddr, val: u8);
-
-    fn cram(&self) -> &[u8];
-    fn cram_mut(&mut self) -> &mut [u8];
 }
 
-impl<MBC: CartridgeMBC> CartridgeMem for Cartridge<MBC> {
+impl<MBC: CartridgeMBC> Cartridge for CartridgeImpl<MBC> {
     type MBC = MBC;
-
-    fn path(&self) -> &str {
-        &self.path
-    }
 
     fn read_rom(&self, addr: CRomAddr) -> u8 {
         self.mbc.read_rom(addr)
@@ -63,46 +48,98 @@ impl<MBC: CartridgeMBC> CartridgeMem for Cartridge<MBC> {
     fn write_cram(&mut self, addr: CRamAddr, val: u8) {
         self.mbc.write_cram(addr, val);
     }
+}
 
-    fn cram(&self) -> &[u8] {
-        self.mbc.cram().data()
+pub trait Savegame {
+    fn savegame(&self) -> Option<&[u8]> {
+        None
     }
 
-    fn cram_mut(&mut self) -> &mut [u8] {
-        self.mbc.cram_mut().data_mut()
+    fn savegame_mut(&mut self) -> Option<&mut [u8]> {
+        None
     }
 }
 
-// TODO: See if this can be made any nicer
-
-impl<T: CartridgeMem> CartridgeMem for &mut T {
-    type MBC = T::MBC;
-
-    fn path(&self) -> &str {
-        T::path(self)
+impl<MBC: CartridgeMBC> Savegame for CartridgeImpl<MBC> {
+    fn savegame(&self) -> Option<&[u8]> {
+        self.mbc.savegame()
     }
 
+    fn savegame_mut(&mut self) -> Option<&mut [u8]> {
+        self.mbc.savegame_mut()
+    }
+}
+
+pub trait Metadata {
+    fn supports_metadata(&self) -> bool {
+        false
+    }
+
+    fn serialize_metadata(&self) -> Result<Vec<u8>, CartridgeParseError> {
+        Err(CartridgeParseError::MetadataNotSuported)
+    }
+
+    fn deserialize_metadata(&mut self, data: Vec<u8>) -> Result<(), CartridgeParseError> {
+        Err(CartridgeParseError::MetadataNotSuported)
+    }
+}
+
+impl<MBC: CartridgeMBC> Metadata for CartridgeImpl<MBC> {
+    fn supports_metadata(&self) -> bool {
+        self.mbc.supports_metadata()
+    }
+
+    fn serialize_metadata(&self) -> Result<Vec<u8>, CartridgeParseError> {
+        self.mbc.serialize_metadata()
+    }
+
+    fn deserialize_metadata(&mut self, data: Vec<u8>) -> Result<(), CartridgeParseError> {
+        self.mbc.deserialize_metadata(data)
+    }
+}
+
+// Now, we implement all traits again for mutable references for caller convenience (and sanity)
+
+impl<C: Cartridge> Savegame for &mut C {
+    fn savegame(&self) -> Option<&[u8]> {
+        C::savegame(self)
+    }
+
+    fn savegame_mut(&mut self) -> Option<&mut [u8]> {
+        C::savegame_mut(self)
+    }
+}
+
+impl<C: Cartridge> Metadata for &mut C {
+    fn supports_metadata(&self) -> bool {
+        C::supports_metadata(self)
+    }
+
+    fn serialize_metadata(&self) -> Result<Vec<u8>, CartridgeParseError> {
+        C::serialize_metadata(self)
+    }
+
+    fn deserialize_metadata(&mut self, data: Vec<u8>) -> Result<(), CartridgeParseError> {
+        C::deserialize_metadata(self, data)
+    }
+}
+
+impl<C: Cartridge> Cartridge for &mut C {
+    type MBC = C::MBC;
+
     fn read_rom(&self, addr: CRomAddr) -> u8 {
-        T::read_rom(self, addr)
+        C::read_rom(self, addr)
     }
 
     fn write_rom(&mut self, addr: CRomAddr, val: u8) {
-        T::write_rom(self, addr, val);
+        C::write_rom(self, addr, val)
     }
 
     fn read_cram(&self, addr: CRamAddr) -> u8 {
-        T::read_cram(self, addr)
+        C::read_cram(self, addr)
     }
 
     fn write_cram(&mut self, addr: CRamAddr, val: u8) {
-        T::write_cram(self, addr, val);
-    }
-
-    fn cram(&self) -> &[u8] {
-        T::cram(self)
-    }
-
-    fn cram_mut(&mut self) -> &mut [u8] {
-        T::cram_mut(self)
+        C::write_cram(self, addr, val)
     }
 }

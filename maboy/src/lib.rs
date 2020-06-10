@@ -23,16 +23,22 @@ pub use cartridge::*;
 pub use joypad::Buttons;
 pub use ppu::{MemPixel, VideoFrameStatus};
 
-pub struct Emulator<CMem, CpuDbg, PpuDbg> {
+pub struct Emulator<C, CpuDbg, PpuDbg> {
     cpu: CPU,
-    board: BoardImpl<CMem, CpuDbg, PpuDbg>,
+    board: BoardImpl<C, CpuDbg, PpuDbg>,
 }
 
-impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>
-    Emulator<CMem, CpuDbg, PpuDbg>
+impl<C: Cartridge> Emulator<C, NoDbgLogger, NoDbgLogger> {
+    pub fn new(cartridge: C) -> Self {
+        Self::with_debugger(cartridge, NoDbgLogger, NoDbgLogger)
+    }
+}
+
+impl<C: Cartridge, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>
+    Emulator<C, CpuDbg, PpuDbg>
 {
-    pub fn new(cartridge_mem: CMem, cpu_logger: CpuDbg, ppu_logger: PpuDbg) -> Self {
-        let mem = Memory::new(InternalMem::new(), cartridge_mem);
+    pub fn with_debugger(cartridge: C, cpu_logger: CpuDbg, ppu_logger: PpuDbg) -> Self {
+        let mem = Memory::new(InternalMem::new(), cartridge);
 
         Self {
             cpu: CPU::new(),

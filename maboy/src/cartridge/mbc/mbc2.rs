@@ -1,7 +1,7 @@
 use super::{banked_rom::BankedRom, CartridgeMBC};
 use crate::address::{CRamAddr, CRomAddr};
 use crate::cartridge::cram::CRamMBC2;
-use crate::{cartridge::CartridgeRam, util::BitOps};
+use crate::{cartridge::CartridgeRam, util::BitOps, Metadata, Savegame};
 
 pub struct MBC2 {
     rom: BankedRom,
@@ -10,14 +10,26 @@ pub struct MBC2 {
 }
 
 impl MBC2 {
-    pub fn new(rom: Box<[u8]>) -> MBC2 {
+    pub fn new(rom: Box<[u8]>, has_battery: bool) -> MBC2 {
         MBC2 {
             rom: BankedRom::new(rom),
-            cram: CRamMBC2::new(),
+            cram: CRamMBC2::new(has_battery),
             cram_enabled: false,
         }
     }
 }
+
+impl Savegame for MBC2 {
+    fn savegame(&self) -> Option<&[u8]> {
+        self.cram.savegame()
+    }
+
+    fn savegame_mut(&mut self) -> Option<&mut [u8]> {
+        self.cram.savegame_mut()
+    }
+}
+
+impl Metadata for MBC2 {}
 
 impl CartridgeMBC for MBC2 {
     type CRAM = CRamMBC2;
@@ -54,13 +66,5 @@ impl CartridgeMBC for MBC2 {
         if self.cram_enabled {
             self.cram.write(addr, val)
         }
-    }
-
-    fn cram(&self) -> &Self::CRAM {
-        &self.cram
-    }
-
-    fn cram_mut(&mut self) -> &mut Self::CRAM {
-        &mut self.cram
     }
 }

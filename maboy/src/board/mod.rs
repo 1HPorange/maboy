@@ -1,7 +1,7 @@
 mod oam_dma;
 
 use super::address::{Addr, IOReg, VideoMemAddr};
-use super::cartridge::CartridgeMem;
+use super::cartridge::Cartridge;
 use super::debug::{CpuEvt, DbgEvtSrc, PpuEvt};
 use super::interrupt_system::InterruptSystem;
 use super::joypad::{Buttons, JoyPad};
@@ -12,7 +12,7 @@ use super::timer::Timer;
 use oam_dma::OamDma;
 
 pub trait Board {
-    type CMem: CartridgeMem;
+    type CMem: Cartridge;
     type CpuDbgEvtSrc: DbgEvtSrc<CpuEvt>;
     type PpuDbgEvtSrc: DbgEvtSrc<PpuEvt>;
 
@@ -44,7 +44,7 @@ pub struct BoardImpl<CMem, CpuDbg, PpuDbg> {
     pub ppu_evt_src: PpuDbg,
 }
 
-impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>
+impl<CMem: Cartridge, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>
     BoardImpl<CMem, CpuDbg, PpuDbg>
 {
     pub fn new(mem: Memory<CMem>, cpu_evt_src: CpuDbg, ppu_evt_src: PpuDbg) -> Self {
@@ -80,7 +80,7 @@ impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>
     }
 }
 
-impl<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>> Board
+impl<CMem: Cartridge, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>> Board
     for BoardImpl<CMem, CpuDbg, PpuDbg>
 {
     type CMem = CMem;

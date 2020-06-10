@@ -1,20 +1,18 @@
 use super::cram::*;
 use super::desc::*;
 use super::mbc::*;
-use super::Cartridge;
-use std::fs;
+use super::CartridgeImpl;
+use crate::Cartridge;
+use std::{fs, path::Path};
 
 pub enum CartridgeVariant {
-    Rom(Cartridge<NoMBC<NoCRam>>),
-    RomRam(Cartridge<NoMBC<CRamUnbanked>>),
-    RomRamBat(Cartridge<NoMBC<CRamUnbanked>>),
+    Rom(CartridgeImpl<NoMBC<NoCRam>>),
+    RomRam(CartridgeImpl<NoMBC<CRamUnbanked>>),
 
-    MBC1(Cartridge<MBC1<NoCRam>>),
-    MBC1Ram(Cartridge<MBC1<CRamUnbanked>>),
-    MBC1RamBat(Cartridge<MBC1<CRamUnbanked>>),
+    MBC1(CartridgeImpl<MBC1<NoCRam>>),
+    MBC1Ram(CartridgeImpl<MBC1<CRamUnbanked>>),
 
-    MBC2(Cartridge<MBC2>),
-    MBC2Bat(Cartridge<MBC2>),
+    MBC2(CartridgeImpl<MBC2>),
 }
 
 #[derive(Debug)]
@@ -40,6 +38,9 @@ pub enum CartridgeParseError {
     /// Header declares unknown RAM size
     InvalidHeaderRamSize,
 
+    /// Cartridge does not support metadata
+    MetadataNotSuported,
+
     /// Header MIGHT be valid, but this combination of
     /// cartridge type, ROM size and RAM size is currently
     /// not supported.
@@ -47,7 +48,7 @@ pub enum CartridgeParseError {
 }
 
 impl CartridgeVariant {
-    pub fn from_file(path: String) -> Result<CartridgeVariant, CartridgeParseError> {
+    pub fn from_file<P: AsRef<Path>>(path: P) -> Result<CartridgeVariant, CartridgeParseError> {
         let rom = fs::read(&path)
             .map_err(|io_err| CartridgeParseError::IoError(io_err))?
             .into_boxed_slice();
@@ -78,37 +79,36 @@ impl CartridgeVariant {
 
         // We have to be very lenient here because cartridges might report incorrect values in the header.
         use CRamUnbanked as URam;
-        use Cartridge as C;
+        use CartridgeImpl as C;
         use CartridgeType as CT;
         use CartridgeVariant as CV;
 
         Ok(match ctype {
             // No MBC
             CT::ROM_ONLY | CT::ROM_RAM | CT::ROM_RAM_BATTERY => match ram_size {
-                RamSize::RamNone => CV::Rom(C::new(path, NoMBC::new(rom, NoCRam))),
-                RamSize::Ram2Kb | RamSize::Ram8Kb => {
-                    if ctype.has_battery() {
-                        CV::RomRamBat(C::new(path, NoMBC::new(rom, URam::new(ram_size))))
-                    } else {
-                        CV::RomRam(C::new(path, NoMBC::new(rom, URam::new(ram_size))))
-                    }
-                }
+                RamSize::RamNone => CV::Rom(C::new(NoMBC::new(rom, NoCRam))),
+                RamSize::Ram2Kb | RamSize::Ram8Kb => CV::RomRam(C::new(NoMBC::new(
+                    rom,
+                    URam::new(ram_size, ctype.has_battery()),
+                ))),
                 RamSize::Ram32Kb => return err_unsupported,
             },
+
             // MBC1
             CT::MBC1 | CT::MBC1_RAM | CT::MBC1_RAM_BATTERY => match ram_size {
-                RamSize::RamNone => CV::MBC1(C::new(path, MBC1::new(rom, NoCRam))),
-                RamSize::Ram2Kb | RamSize::Ram8Kb => {
-                    if ctype.has_battery() {
-                        CV::MBC1RamBat(C::new(path, MBC1::new(rom, URam::new(ram_size))))
-                    } else {
-                        CV::MBC1Ram(C::new(path, MBC1::new(rom, URam::new(ram_size))))
-                    }
-                }
+                RamSize::RamNone => CV::MBC1(C::new(MBC1::new(rom, NoCRam))),
+                RamSize::Ram2Kb | RamSize::Ram8Kb => CV::MBC1Ram(C::new(MBC1::new(
+                    rom,
+                    URam::new(ram_size, ctype.has_battery()),
+                ))),
+
                 RamSize::Ram32Kb => return err_unsupported,
             },
-            CT::MBC2 => CV::MBC2(C::new(path, MBC2::new(rom))),
-            CT::MBC2_BATTERY => CV::MBC2Bat(C::new(path, MBC2::new(rom))),
+
+            // MBC2
+            CT::MBC2 | CT::MBC2_BATTERY => CV::MBC2(C::new(MBC2::new(rom, ctype.has_battery()))),
+
+            // Anything else is not supported (yet)
             _ => return err_unsupported,
         })
     }

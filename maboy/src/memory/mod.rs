@@ -1,6 +1,6 @@
 mod internal_mem;
 
-use super::cartridge::CartridgeMem;
+use super::cartridge::Cartridge;
 use crate::address::{CRomAddr, MemAddr};
 
 pub use internal_mem::InternalMem;
@@ -11,11 +11,11 @@ pub struct Memory<C> {
     boot_rom_mapped: bool,
 }
 
-impl<C: CartridgeMem> Memory<C> {
-    pub fn new(internal_mem: InternalMem, cartridge_mem: C) -> Memory<C> {
+impl<C: Cartridge> Memory<C> {
+    pub fn new(internal_mem: InternalMem, cartridge: C) -> Memory<C> {
         Memory {
             internal: internal_mem,
-            cartridge: cartridge_mem,
+            cartridge: cartridge,
             boot_rom_mapped: true,
         }
     }

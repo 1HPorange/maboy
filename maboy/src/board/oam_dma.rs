@@ -1,7 +1,7 @@
 use crate::address::{Addr, VideoMemAddr};
 use crate::board::{Board, BoardImpl};
 use crate::{
-    cartridge::CartridgeMem,
+    cartridge::Cartridge,
     debug::{CpuEvt, DbgEvtSrc, PpuEvt},
 };
 
@@ -55,11 +55,7 @@ impl OamDma {
     /// design this (like moving this OamDma onto `Emulator`), but then we would have uglier code
     /// in a lot more places. I think this solution is the lesser evil.
 
-    pub fn advance_mcycle<
-        CMem: CartridgeMem,
-        CpuDbg: DbgEvtSrc<CpuEvt>,
-        PpuDbg: DbgEvtSrc<PpuEvt>,
-    >(
+    pub fn advance_mcycle<CMem: Cartridge, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>(
         board: &mut BoardImpl<CMem, CpuDbg, PpuDbg>,
     ) {
         // TODO: Don't progress when CPU is in halt or stop

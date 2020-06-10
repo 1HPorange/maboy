@@ -3,7 +3,11 @@ use maboy::*;
 use maboy_windows::*;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::time::{Duration, Instant};
+use std::{
+    fs,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 // TODO: Move this into some sort of input mapping struct
 const A_BUTTON_KEY: KeyboardKey = KeyboardKey::K;
@@ -31,23 +35,20 @@ fn main() {
     .expect_msg_box("Could not open ROM file");
 
     // Parse Cartridge
-    let cartridge = CartridgeVariant::from_file(rom_path).expect_msg_box("Could not open rom file");
+    let cartridge =
+        CartridgeVariant::from_file(&rom_path).expect_msg_box("Could not open rom file");
 
-    // TODO: This ugly thing should move inside the emulator...
-    match cartridge {
-        CartridgeVariant::Rom(c) => run(c),
-        CartridgeVariant::RomRam(c) => run(c),
-        CartridgeVariant::RomRamBat(c) => run_with_savegame(c),
-        CartridgeVariant::MBC1(c) => run(c),
-        CartridgeVariant::MBC1Ram(c) => run(c),
-        CartridgeVariant::MBC1RamBat(c) => run_with_savegame(c),
-        CartridgeVariant::MBC2(c) => run(c),
-        CartridgeVariant::MBC2Bat(c) => run_with_savegame(c),
-    };
+    dispatch_emulator(&rom_path, cartridge);
 }
 
-fn run<C: CartridgeMem>(cartridge: C) {
-    let mut emu = Emulator::new(cartridge, cpu_logger(), NoDbgLogger);
+fn run_emu<C: Cartridge>(rom_path: &str, mut cartridge: C) {
+    let mut rom_path = PathBuf::from(rom_path);
+
+    load_savegame(&mut rom_path, &mut cartridge);
+
+    load_metadata(&mut rom_path, &mut cartridge);
+
+    let mut emu = Emulator::with_debugger(&mut cartridge, cpu_logger(), NoDbgLogger);
 
     #[cfg(debug_assertions)]
     let mut cpu_debugger = CpuDebugger::new();
@@ -147,28 +148,64 @@ fn run<C: CartridgeMem>(cartridge: C) {
             }
         }
     }
+
+    store_savegame(&mut rom_path, &cartridge);
+
+    store_metadata(&mut rom_path, &cartridge);
 }
 
-fn run_with_savegame<C: CartridgeMem>(mut cartridge: C) {
+fn load_savegame<C: Savegame>(rom_path: &mut PathBuf, cartridge: &mut C) {
     use std::fs::File;
     use std::io::Read;
-    use std::path::PathBuf;
 
-    // Try to guess savegame path from rom path
-    let mut sav_path = PathBuf::from(cartridge.path());
-    sav_path.set_extension("sav");
+    if let Some(cram) = cartridge.savegame_mut() {
+        rom_path.set_extension("sav");
 
-    // If it exists, we read it into the cartridge RAM
-    if let Ok(mut save_file) = File::open(&sav_path) {
-        save_file
-            .read_exact(cartridge.cram_mut())
-            .expect_msg_box("Failed to load savegame");
+        // If it exists, we read it into the cartridge RAM
+        if let Ok(mut save_file) = File::open(&rom_path) {
+            save_file
+                .read_exact(cram)
+                .expect_msg_box("Failed to load savegame");
+        }
+    }
+}
+
+fn store_savegame<C: Savegame>(rom_path: &mut PathBuf, cartridge: &C) {
+    if let Some(cram) = cartridge.savegame() {
+        // Try to guess savegame path from rom path
+        rom_path.set_extension("sav");
+
+        // We overwrite / create a sav file with the cram contents
+        fs::write(rom_path, cram).expect_msg_box("Could not write savegame to disk");
+    }
+}
+
+fn load_metadata<C: Metadata>(rom_path: &mut PathBuf, cartridge: &mut C) {
+    if !cartridge.supports_metadata() {
+        return;
     }
 
-    run(&mut cartridge);
+    rom_path.set_extension("meta");
 
-    // Store savegame
-    std::fs::write(sav_path, cartridge.cram()).expect_msg_box("Failed to write savegame to disk");
+    if let Ok(metadata) = fs::read(rom_path) {
+        cartridge
+            .deserialize_metadata(metadata)
+            .expect_msg_box("Metadata file was found, but had invalid contents")
+    }
+}
+
+fn store_metadata<C: Metadata>(rom_path: &mut PathBuf, cartridge: &C) {
+    if !cartridge.supports_metadata() {
+        return;
+    }
+
+    rom_path.set_extension("meta");
+
+    let metadata = cartridge
+        .serialize_metadata()
+        .expect_msg_box("Could not serialize cartridge metadata");
+
+    fs::write(rom_path, metadata).expect_msg_box("Could not write cartridge metadata to disk");
 }
 
 fn present_frame(frame: GfxFrame, os_timing: &mut OsTiming) {
@@ -181,7 +218,8 @@ fn present_frame(frame: GfxFrame, os_timing: &mut OsTiming) {
 }
 
 // TODO: Make this signature nice by lower trait requirements for Emulator function calls
-fn os_update<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>(
+// or by introducing an Emulator trait
+fn os_update<CMem: Cartridge, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<PpuEvt>>(
     emu: &mut Emulator<CMem, CpuDbg, PpuDbg>,
     window_factory: &WindowFactory,
     window_input: &RefCell<WindowInput>,
@@ -218,6 +256,16 @@ fn os_update<CMem: CartridgeMem, CpuDbg: DbgEvtSrc<CpuEvt>, PpuDbg: DbgEvtSrc<Pp
     emu.notify_buttons_state(button_states);
 
     true
+}
+
+fn dispatch_emulator(rom_path: &str, mut cartridge: CartridgeVariant) {
+    match &mut cartridge {
+        CartridgeVariant::Rom(c) => run_emu(rom_path, c),
+        CartridgeVariant::RomRam(c) => run_emu(rom_path, c),
+        CartridgeVariant::MBC1(c) => run_emu(rom_path, c),
+        CartridgeVariant::MBC1Ram(c) => run_emu(rom_path, c),
+        CartridgeVariant::MBC2(c) => run_emu(rom_path, c),
+    }
 }
 
 #[cfg(debug_assertions)]

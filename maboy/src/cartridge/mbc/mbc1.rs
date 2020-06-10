@@ -2,6 +2,7 @@ use super::{banked_rom::BankedRom, CartridgeMBC};
 use crate::{
     address::{CRamAddr, CRomAddr},
     cartridge::cram::CartridgeRam,
+    Metadata, Savegame,
 };
 
 pub struct MBC1<CRAM> {
@@ -40,6 +41,18 @@ impl<CRAM: CartridgeRam> MBC1<CRAM> {
         self.rom.select_bank(self.mapped_bank_index);
     }
 }
+
+impl<CRAM: CartridgeRam> Savegame for MBC1<CRAM> {
+    fn savegame(&self) -> Option<&[u8]> {
+        self.cram.savegame()
+    }
+
+    fn savegame_mut(&mut self) -> Option<&mut [u8]> {
+        self.cram.savegame_mut()
+    }
+}
+
+impl<CRAM: CartridgeRam> Metadata for MBC1<CRAM> {}
 
 impl<CRAM: CartridgeRam> CartridgeMBC for MBC1<CRAM> {
     type CRAM = CRAM;
@@ -91,13 +104,5 @@ impl<CRAM: CartridgeRam> CartridgeMBC for MBC1<CRAM> {
         if self.cram_enabled {
             self.cram.write(addr, val)
         }
-    }
-
-    fn cram(&self) -> &Self::CRAM {
-        &self.cram
-    }
-
-    fn cram_mut(&mut self) -> &mut Self::CRAM {
-        &mut self.cram
     }
 }

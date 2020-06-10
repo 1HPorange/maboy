@@ -1,5 +1,5 @@
 use super::{fmt::FmtNum, CpuEvt, DbgEvtLogger, DbgEvtSrc, PpuEvt};
-use crate::cartridge::CartridgeMem;
+use crate::cartridge::Cartridge;
 use crate::{
     address::{Addr, PpuReg},
     board::Board,
@@ -45,9 +45,9 @@ impl CpuDebugger {
     }
 
     /// Call this *before* calling Emulator::emulate_step()
-    pub fn try_run_blocking<CMem: CartridgeMem, PpuDbg: DbgEvtSrc<PpuEvt>>(
+    pub fn try_run_blocking<C: Cartridge, PpuDbg: DbgEvtSrc<PpuEvt>>(
         &mut self,
-        emu: &Emulator<CMem, DbgEvtLogger<CpuEvt>, PpuDbg>,
+        emu: &Emulator<C, DbgEvtLogger<CpuEvt>, PpuDbg>,
     ) {
         if let Some(break_reason) = self.break_reason(emu) {
             self.output_buffer.clear();
@@ -95,7 +95,7 @@ impl CpuDebugger {
         term.clear_screen().unwrap();
     }
 
-    fn break_reason<CMem: CartridgeMem, PpuDbg: DbgEvtSrc<PpuEvt>>(
+    fn break_reason<CMem: Cartridge, PpuDbg: DbgEvtSrc<PpuEvt>>(
         &mut self,
         emu: &Emulator<CMem, DbgEvtLogger<CpuEvt>, PpuDbg>,
     ) -> Option<BreakReason> {
@@ -285,7 +285,7 @@ impl CpuDebugger {
         .unwrap();
     }
 
-    fn print_preceding_instr<CMem: CartridgeMem, PpuDbg: DbgEvtSrc<PpuEvt>>(
+    fn print_preceding_instr<CMem: Cartridge, PpuDbg: DbgEvtSrc<PpuEvt>>(
         &mut self,
         emu: &Emulator<CMem, DbgEvtLogger<CpuEvt>, PpuDbg>,
     ) {
