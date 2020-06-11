@@ -79,7 +79,7 @@ pub trait Metadata {
         Err(CartridgeParseError::MetadataNotSuported)
     }
 
-    fn deserialize_metadata(&mut self, data: Vec<u8>) -> Result<(), CartridgeParseError> {
+    fn deserialize_metadata(&mut self, _data: Vec<u8>) -> Result<(), CartridgeParseError> {
         Err(CartridgeParseError::MetadataNotSuported)
     }
 }

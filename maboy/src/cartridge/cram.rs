@@ -4,7 +4,7 @@ use crate::{address::CRamAddr, Savegame};
 pub trait CartridgeRam: Savegame {
     fn read(&self, addr: CRamAddr) -> u8;
     fn write(&mut self, addr: CRamAddr, val: u8);
-    fn select_bank(&mut self, bank: u8);
+    fn try_select_bank(&mut self, bank: u8);
 }
 
 pub struct NoCRam;
@@ -18,7 +18,7 @@ impl CartridgeRam for NoCRam {
 
     fn write(&mut self, _addr: CRamAddr, _val: u8) {}
 
-    fn select_bank(&mut self, _bank: u8) {}
+    fn try_select_bank(&mut self, _bank: u8) {}
 }
 
 pub struct CRamUnbanked {
@@ -69,7 +69,7 @@ impl CartridgeRam for CRamUnbanked {
         }
     }
 
-    fn select_bank(&mut self, _bank: u8) {}
+    fn try_select_bank(&mut self, _bank: u8) {}
 }
 
 /// MBC2 has a weird half-byte RAM, where only the lower 4 bits of each addressable byte are used.
@@ -90,7 +90,23 @@ impl CRamMBC2 {
     }
 }
 
-impl Savegame for CRamMBC2 {}
+impl Savegame for CRamMBC2 {
+    fn savegame(&self) -> Option<&[u8]> {
+        if self.has_battery {
+            Some(&self.cram)
+        } else {
+            None
+        }
+    }
+
+    fn savegame_mut(&mut self) -> Option<&mut [u8]> {
+        if self.has_battery {
+            Some(&mut self.cram)
+        } else {
+            None
+        }
+    }
+}
 
 impl CartridgeRam for CRamMBC2 {
     fn read(&self, addr: CRamAddr) -> u8 {
@@ -117,5 +133,5 @@ impl CartridgeRam for CRamMBC2 {
         }
     }
 
-    fn select_bank(&mut self, _bank: u8) {}
+    fn try_select_bank(&mut self, _bank: u8) {}
 }

@@ -1,11 +1,10 @@
-use crate::{util::BitOps, CartridgeParseError, Metadata};
+use crate::{util::BitOps, CartridgeParseError};
 use bitflags::bitflags;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
-use std::io::Write;
 use std::{
     mem::size_of,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, SystemTime},
 };
 
 // TODO: Figure out if my understadning of latching is correct
@@ -83,9 +82,12 @@ impl Rtc {
         }
     }
 
-    pub fn try_select_reg(&mut self, val: u8) {
+    pub fn try_select_reg(&mut self, val: u8) -> bool {
         if let Ok(reg) = RtcRegAddr::try_from(val) {
             self.selected_reg = reg;
+            true
+        } else {
+            false
         }
     }
 

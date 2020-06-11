@@ -1,4 +1,3 @@
-use super::variant::CartridgeParseError;
 use num_enum::TryFromPrimitive;
 use std::convert::TryFrom;
 

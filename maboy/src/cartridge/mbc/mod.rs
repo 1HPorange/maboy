@@ -1,6 +1,7 @@
 mod banked_rom;
 mod mbc1;
 mod mbc2;
+mod mbc3;
 mod rtc;
 
 // TODO: Consistent naming: CRam, Mbc, Ppu, Cpu, ...
@@ -13,6 +14,7 @@ use crate::{
 
 pub(super) use mbc1::MBC1;
 pub(super) use mbc2::MBC2;
+pub(super) use mbc3::{MBC3Rtc, MBC3};
 
 // TODO: consistent hex digit formatiing (0xff vs 0xFF)
 

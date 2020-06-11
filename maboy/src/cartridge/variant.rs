@@ -2,7 +2,6 @@ use super::cram::*;
 use super::desc::*;
 use super::mbc::*;
 use super::CartridgeImpl;
-use crate::Cartridge;
 use std::{fs, path::Path};
 
 pub enum CartridgeVariant {
@@ -13,6 +12,11 @@ pub enum CartridgeVariant {
     MBC1Ram(CartridgeImpl<MBC1<CRamUnbanked>>),
 
     MBC2(CartridgeImpl<MBC2>),
+
+    MBC3(CartridgeImpl<MBC3<NoCRam>>),
+    MBC3Rtc(CartridgeImpl<MBC3Rtc<NoCRam>>),
+    MBC3Ram(CartridgeImpl<MBC3<CRamUnbanked>>),
+    MBC3RamRtc(CartridgeImpl<MBC3Rtc<CRamUnbanked>>),
 }
 
 #[derive(Debug)]
@@ -110,6 +114,24 @@ impl CartridgeVariant {
 
             // MBC2
             CT::MBC2 | CT::MBC2_BATTERY => CV::MBC2(C::new(MBC2::new(rom, ctype.has_battery()))),
+
+            // MBC3
+            CT::MBC3 | CT::MBC3_RAM | CT::MBC3_RAM_BATTERY => match ram_size {
+                RamSize::RamNone => CV::MBC3(C::new(MBC3::new(rom, NoCRam))),
+                RamSize::Ram2Kb | RamSize::Ram8Kb => CV::MBC3Ram(C::new(MBC3::new(
+                    rom,
+                    URam::new(ram_size, ctype.has_battery()),
+                ))),
+                RamSize::Ram32Kb => return err_unsupported,
+            },
+            CT::MBC3_TIMER_BATTERY | CT::MBC3_TIMER_RAM_BATTERY => match ram_size {
+                RamSize::RamNone => CV::MBC3Rtc(C::new(MBC3Rtc::new(rom, NoCRam))),
+                RamSize::Ram2Kb | RamSize::Ram8Kb => CV::MBC3RamRtc(C::new(MBC3Rtc::new(
+                    rom,
+                    URam::new(ram_size, ctype.has_battery()),
+                ))),
+                RamSize::Ram32Kb => return err_unsupported,
+            },
 
             // Anything else is not supported (yet)
             _ => return err_unsupported,

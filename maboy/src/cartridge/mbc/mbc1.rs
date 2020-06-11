@@ -52,7 +52,7 @@ impl<CRAM: CartridgeRam> Savegame for MBC1<CRAM> {
     }
 }
 
-impl<CRAM: CartridgeRam> Metadata for MBC1<CRAM> {}
+impl<CRAM> Metadata for MBC1<CRAM> {}
 
 impl<CRAM: CartridgeRam> CartridgeMBC for MBC1<CRAM> {
     type CRAM = CRAM;
@@ -75,12 +75,12 @@ impl<CRAM: CartridgeRam> CartridgeMBC for MBC1<CRAM> {
                     self.mapped_bank_index = self.mapped_bank_index & 0x1F + ((val & 0b11) << 5);
                     self.update_mapped_bank();
                 }
-                MBC1Mode::RamBanking => self.cram.select_bank(val),
+                MBC1Mode::RamBanking => self.cram.try_select_bank(val),
             },
             CRomAddr::CROMn(_) => match val {
                 0 => {
                     self.mode = MBC1Mode::RomBanking;
-                    self.cram.select_bank(0);
+                    self.cram.try_select_bank(0);
                 }
                 1 => {
                     self.mode = MBC1Mode::RamBanking;
