@@ -33,12 +33,14 @@ impl Rtc {
             return Err(CartridgeParseError::InvalidRtcMetadata);
         }
 
-        let duration_since_epoch = Duration::from_secs(u64::from_le_bytes(
-            <[u8; size_of::<u64>()]>::try_from(&metadata[..])
+        let duration_since_epoch = Duration::from_millis(u64::from_le_bytes(
+            <[u8; size_of::<u64>()]>::try_from(&metadata[..size_of::<u64>()])
                 .map_err(|_| CartridgeParseError::InvalidRtcMetadata)?,
         ));
 
-        let base = SystemTime::UNIX_EPOCH + duration_since_epoch;
+        let base = SystemTime::UNIX_EPOCH
+            .checked_add(duration_since_epoch)
+            .ok_or(CartridgeParseError::InvalidRtcMetadata)?;
 
         let base_reg = RtcReg {
             seconds: metadata[size_of::<u64>() + 0],
