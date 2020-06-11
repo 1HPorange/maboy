@@ -110,7 +110,7 @@ impl Rtc {
     }
 
     pub fn write_reg(&mut self, val: u8) {
-        if matches!(self.selected_reg, RtcRegAddr::Flags) {
+        if let RtcRegAddr::Flags = self.selected_reg {
             // We unforunately have to recalculate all base registers here, since
             // the DAY_MSB and DAY_CARRY bits can't be fooled by any trickery
 
@@ -122,18 +122,28 @@ impl Rtc {
             self.base_reg.days_lower = self.calc_reg(RtcRegAddr::DaysLower, elapsed);
             self.base_reg.flags = RtcFlags::from_bits_truncate(val);
 
-            self.base = SystemTime::now();
+            // Eliminate drift by subtracting the fractional second that we "forgot about"
+            self.base = SystemTime::now() - Duration::from_nanos(elapsed.subsec_nanos() as u64);
         } else {
             // We use a trick here: To avoid recalculating all registers and
             // setting a new self.base, we propagate the relative register
             // difference back to correpsponding register in base_reg.
 
-            let diff = val.wrapping_sub(self.calc_reg(
+            let target = self.selected_reg.constrain_value(val);
+            let current = self.calc_reg(
                 self.selected_reg,
                 self.base.elapsed().unwrap_or(Duration::from_secs(0)),
-            ));
-            *self.base_reg.get_mut(self.selected_reg) =
-                self.base_reg.get(self.selected_reg).wrapping_add(diff);
+            );
+
+            if target > current {
+                *self.base_reg.get_mut(self.selected_reg) += target - current;
+            } else if target < current {
+                *self.base_reg.get_mut(self.selected_reg) += 60 - current - target;
+            }
+
+            if let Some(limit) = self.selected_reg.limit() {
+                *self.base_reg.get_mut(self.selected_reg) %= limit;
+            }
         }
     }
 
@@ -149,12 +159,13 @@ impl Rtc {
             RtcRegAddr::DaysLower => self
                 .base_reg
                 .days_lower
-                .wrapping_add((elapsed.as_secs() % 86400) as u8),
+                .wrapping_add((elapsed.as_secs() / 86400) as u8),
             RtcRegAddr::Flags => {
                 // Note: This cast to u16 will fail if you don't play for around 184 years. Make
                 // sure to pass this knowledge to your grandkids.
-                let days_raw = ((elapsed.as_secs() % 86400) as u16)
-                    + (((self.base_reg.flags.bits & 1) as u16) << 8);
+                let days_raw = ((elapsed.as_secs() / 86400) as u16)
+                    + (((self.base_reg.flags.bits & 1) as u16) << 8)
+                    + (self.base_reg.days_lower as u16);
 
                 let mut flags = RtcFlags::empty();
                 flags.set(RtcFlags::DAY_MSB, days_raw.bit(8));
@@ -170,7 +181,7 @@ impl Rtc {
     }
 }
 
-#[derive(TryFromPrimitive, Copy, Clone)]
+#[derive(TryFromPrimitive, Copy, Clone, Debug)]
 #[repr(u8)]
 enum RtcRegAddr {
     Seconds = 0x8,
@@ -178,6 +189,29 @@ enum RtcRegAddr {
     Hours = 0xA,
     DaysLower = 0xB,
     Flags = 0xC,
+}
+
+impl RtcRegAddr {
+    // TODO: Investigate how this behaves in real hardware
+    fn constrain_value(&self, val: u8) -> u8 {
+        match self {
+            RtcRegAddr::Seconds => val % 60,
+            RtcRegAddr::Minutes => val % 60,
+            RtcRegAddr::Hours => val % 24,
+            RtcRegAddr::DaysLower => val,
+            RtcRegAddr::Flags => val,
+        }
+    }
+
+    fn limit(&self) -> Option<u8> {
+        match self {
+            RtcRegAddr::Seconds => Some(60),
+            RtcRegAddr::Minutes => Some(60),
+            RtcRegAddr::Hours => Some(24),
+            RtcRegAddr::DaysLower => None,
+            RtcRegAddr::Flags => None,
+        }
+    }
 }
 
 #[derive(Default)]
