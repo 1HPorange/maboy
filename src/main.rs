@@ -27,8 +27,8 @@ fn main() {
     let rom_path = open_file_dialog(
         "Please select a cartridge rom",
         vec![FileFilter::new(
-            "Cartridge ROM (.gb, .rom)",
-            vec!["*.GB", "*.ROM"],
+            "Cartridge ROM (.gb, .rom, .gbc)",
+            vec!["*.GB", "*.ROM", "*.GBC"],
         )],
     )
     .map(|s| s.into_string().expect_msg_box("Could not read rom path"))
