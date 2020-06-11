@@ -41,6 +41,9 @@ pub enum CartridgeParseError {
     /// Cartridge does not support metadata
     MetadataNotSuported,
 
+    /// The RTC module could not deserialize the provided metadata
+    InvalidRtcMetadata,
+
     /// Header MIGHT be valid, but this combination of
     /// cartridge type, ROM size and RAM size is currently
     /// not supported.

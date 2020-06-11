@@ -1,6 +1,7 @@
 mod banked_rom;
 mod mbc1;
 mod mbc2;
+mod rtc;
 
 // TODO: Consistent naming: CRam, Mbc, Ppu, Cpu, ...
 
