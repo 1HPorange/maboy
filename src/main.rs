@@ -262,13 +262,17 @@ fn dispatch_emulator(rom_path: &str, mut cartridge: CartridgeVariant) {
     match &mut cartridge {
         CartridgeVariant::Rom(c) => run_emu(rom_path, c),
         CartridgeVariant::RomRam(c) => run_emu(rom_path, c),
+        CartridgeVariant::RomRamBanked(c) => run_emu(rom_path, c),
         CartridgeVariant::MBC1(c) => run_emu(rom_path, c),
         CartridgeVariant::MBC1Ram(c) => run_emu(rom_path, c),
+        CartridgeVariant::MBC1RamBanked(c) => run_emu(rom_path, c),
         CartridgeVariant::MBC2(c) => run_emu(rom_path, c),
         CartridgeVariant::MBC3(c) => run_emu(rom_path, c),
         CartridgeVariant::MBC3Rtc(c) => run_emu(rom_path, c),
         CartridgeVariant::MBC3Ram(c) => run_emu(rom_path, c),
+        CartridgeVariant::MBC3RamBanked(c) => run_emu(rom_path, c),
         CartridgeVariant::MBC3RamRtc(c) => run_emu(rom_path, c),
+        CartridgeVariant::MBC3RamBankedRtc(c) => run_emu(rom_path, c),
     }
 }
 

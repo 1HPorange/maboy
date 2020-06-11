@@ -4,6 +4,7 @@ use std::pin::Pin;
 // TODO: Think about if we can reuse this for banked CRAM
 pub struct BankedRom {
     rom: Pin<Box<[u8]>>,
+    // TODO: Figure out exact behaviour when a non-existent bank is selected
     mapped_bank: Option<&'static [u8]>,
 }
 

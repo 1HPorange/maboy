@@ -7,16 +7,20 @@ use std::{fs, path::Path};
 pub enum CartridgeVariant {
     Rom(CartridgeImpl<NoMBC<NoCRam>>),
     RomRam(CartridgeImpl<NoMBC<CRamUnbanked>>),
+    RomRamBanked(CartridgeImpl<NoMBC<CRamBanked>>),
 
     MBC1(CartridgeImpl<MBC1<NoCRam>>),
     MBC1Ram(CartridgeImpl<MBC1<CRamUnbanked>>),
+    MBC1RamBanked(CartridgeImpl<MBC1<CRamBanked>>),
 
     MBC2(CartridgeImpl<MBC2>),
 
     MBC3(CartridgeImpl<MBC3<NoCRam>>),
     MBC3Rtc(CartridgeImpl<MBC3Rtc<NoCRam>>),
     MBC3Ram(CartridgeImpl<MBC3<CRamUnbanked>>),
+    MBC3RamBanked(CartridgeImpl<MBC3<CRamBanked>>),
     MBC3RamRtc(CartridgeImpl<MBC3Rtc<CRamUnbanked>>),
+    MBC3RamBankedRtc(CartridgeImpl<MBC3Rtc<CRamBanked>>),
 }
 
 #[derive(Debug)]
@@ -85,6 +89,7 @@ impl CartridgeVariant {
         let err_unsupported = Err(CartridgeParseError::Unsupported(ctype, rom_size, ram_size));
 
         // We have to be very lenient here because cartridges might report incorrect values in the header.
+        use CRamBanked as BRam;
         use CRamUnbanked as URam;
         use CartridgeImpl as C;
         use CartridgeType as CT;
@@ -98,7 +103,9 @@ impl CartridgeVariant {
                     rom,
                     URam::new(ram_size, ctype.has_battery()),
                 ))),
-                RamSize::Ram32Kb => return err_unsupported,
+                RamSize::Ram32Kb => {
+                    CV::RomRamBanked(C::new(NoMBC::new(rom, BRam::new(ctype.has_battery()))))
+                }
             },
 
             // MBC1
@@ -109,7 +116,9 @@ impl CartridgeVariant {
                     URam::new(ram_size, ctype.has_battery()),
                 ))),
 
-                RamSize::Ram32Kb => return err_unsupported,
+                RamSize::Ram32Kb => {
+                    CV::MBC1RamBanked(C::new(MBC1::new(rom, BRam::new(ctype.has_battery()))))
+                }
             },
 
             // MBC2
@@ -122,7 +131,9 @@ impl CartridgeVariant {
                     rom,
                     URam::new(ram_size, ctype.has_battery()),
                 ))),
-                RamSize::Ram32Kb => return err_unsupported,
+                RamSize::Ram32Kb => {
+                    CV::MBC3RamBanked(C::new(MBC3::new(rom, BRam::new(ctype.has_battery()))))
+                }
             },
             CT::MBC3_TIMER_BATTERY | CT::MBC3_TIMER_RAM_BATTERY => match ram_size {
                 RamSize::RamNone => CV::MBC3Rtc(C::new(MBC3Rtc::new(rom, NoCRam))),
@@ -130,7 +141,9 @@ impl CartridgeVariant {
                     rom,
                     URam::new(ram_size, ctype.has_battery()),
                 ))),
-                RamSize::Ram32Kb => return err_unsupported,
+                RamSize::Ram32Kb => {
+                    CV::MBC3RamBankedRtc(C::new(MBC3Rtc::new(rom, BRam::new(ctype.has_battery()))))
+                }
             },
 
             // Anything else is not supported (yet)

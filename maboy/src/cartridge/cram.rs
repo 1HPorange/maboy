@@ -1,5 +1,6 @@
 use super::desc::RamSize;
 use crate::{address::CRamAddr, Savegame};
+use std::pin::Pin;
 
 pub trait CartridgeRam: Savegame {
     fn read(&self, addr: CRamAddr) -> u8;
@@ -134,4 +135,58 @@ impl CartridgeRam for CRamMBC2 {
     }
 
     fn try_select_bank(&mut self, _bank: u8) {}
+}
+
+pub struct CRamBanked {
+    cram: Pin<Box<[u8]>>,
+    mapped_bank: &'static mut [u8],
+    has_battery: bool,
+}
+
+impl CRamBanked {
+    pub fn new(has_battery: bool) -> Self {
+        let mut cram = Pin::new(vec![0u8; 4 * 0x2000].into_boxed_slice());
+        let mapped_bank = unsafe { std::mem::transmute(&mut cram[..]) };
+
+        Self {
+            cram,
+            mapped_bank,
+            has_battery,
+        }
+    }
+}
+
+impl Savegame for CRamBanked {
+    fn savegame(&self) -> Option<&[u8]> {
+        if self.has_battery {
+            Some(&self.cram)
+        } else {
+            None
+        }
+    }
+
+    fn savegame_mut(&mut self) -> Option<&mut [u8]> {
+        if self.has_battery {
+            Some(&mut self.cram)
+        } else {
+            None
+        }
+    }
+}
+
+impl CartridgeRam for CRamBanked {
+    fn read(&self, addr: CRamAddr) -> u8 {
+        self.mapped_bank[addr.raw() as usize]
+    }
+
+    fn write(&mut self, addr: CRamAddr, val: u8) {
+        self.mapped_bank[addr.raw() as usize] = val;
+    }
+
+    fn try_select_bank(&mut self, bank: u8) {
+        if bank < 4 {
+            self.mapped_bank =
+                unsafe { std::mem::transmute(&mut self.cram[0x2000 * bank as usize..]) };
+        }
+    }
 }
