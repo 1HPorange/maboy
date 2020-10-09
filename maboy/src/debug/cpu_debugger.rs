@@ -3,7 +3,7 @@ use crate::cartridge::Cartridge;
 use crate::{
     address::{Addr, PpuReg},
     board::Board,
-    cpu::{ByteInstr, Registers, CPU, R16, R8},
+    cpu::{ByteInstr, Registers, CPU, R8},
     ppu::{LCDC, LCDS, PPU},
     Emulator,
 };
@@ -108,7 +108,7 @@ impl CpuDebugger {
             }
         }
 
-        let instr_start = emu.cpu.reg.pc();
+        let instr_start = emu.cpu.reg.pc;
         // Safe transmute because every u8 represents a valid enum variant
         let instr: ByteInstr =
             unsafe { std::mem::transmute(emu.board.read8_instant(Addr::from(instr_start))) };
@@ -204,37 +204,36 @@ impl CpuDebugger {
     }
 
     fn print_cpu_state(&mut self, reg: &Registers) {
-        use R16::*;
         use R8::*;
 
         writeln!(
             self.output_buffer,
             " PC: {}, SP: {}, BC: {}, DE: {}, HL: {}",
-            reg.r16(PC).fmt_val(),
-            reg.r16(SP).fmt_val(),
-            reg.r16(BC).fmt_val(),
-            reg.r16(DE).fmt_val(),
-            reg.r16(HL).fmt_val()
+            reg.pc.fmt_val(),
+            reg.sp.fmt_val(),
+            reg.bc.fmt_val(),
+            reg.de.fmt_val(),
+            reg.hl.fmt_val()
         )
         .unwrap();
 
         writeln!(
             self.output_buffer,
             " A: {}, B: {}, C: {}, D: {}, E: {}, H: {}, L: {}",
-            reg.r8(A).fmt_val(),
-            reg.r8(B).fmt_val(),
-            reg.r8(C).fmt_val(),
-            reg.r8(D).fmt_val(),
-            reg.r8(E).fmt_val(),
-            reg.r8(H).fmt_val(),
-            reg.r8(L).fmt_val()
+            reg.get_r8(A).fmt_val(),
+            reg.get_r8(B).fmt_val(),
+            reg.get_r8(C).fmt_val(),
+            reg.get_r8(D).fmt_val(),
+            reg.get_r8(E).fmt_val(),
+            reg.get_r8(H).fmt_val(),
+            reg.get_r8(L).fmt_val()
         )
         .unwrap();
 
         writeln!(
             self.output_buffer,
             " Flags: {}",
-            style(format!("{:?}", reg.flags())).green()
+            style(format!("{:?}", reg.flags)).green()
         )
         .unwrap();
     }
@@ -367,10 +366,10 @@ impl CpuDebugger {
         )
         .unwrap();
 
-        let mut pc = cpu.reg.pc();
+        let mut pc = cpu.reg.pc;
         // Safe transmute because every u8 represents a valid enum variant
         let instr: ByteInstr =
-            unsafe { std::mem::transmute(board.read8_instant(Addr::from(cpu.reg.pc()))) };
+            unsafe { std::mem::transmute(board.read8_instant(Addr::from(cpu.reg.pc))) };
 
         self.print_single_instr(board, &mut pc, instr);
 

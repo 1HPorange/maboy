@@ -14,111 +14,110 @@ pub fn ld8<B: Board, D: Dst8, S: Src8>(cpu: &mut CPU, board: &mut B, dst: D, src
 }
 
 pub fn ld_rr_d16<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
-    *cpu.reg.r16_mut(rr) = cpu.read16i(board);
+    let d16 = cpu.read16i(board);
+    cpu.reg.set_r16(rr, d16);
 }
 
 pub fn ld_a16_sp<B: Board>(cpu: &mut CPU, board: &mut B) {
     let addr = cpu.read16i(board);
-    board.write16(addr, cpu.reg.sp());
+    board.write16(addr, cpu.reg.sp);
 }
 
 pub fn ld_sp_hl<B: Board>(cpu: &mut CPU, board: &mut B) {
-    *cpu.reg.sp_mut() = cpu.reg.hl();
-
+    cpu.reg.sp = cpu.reg.hl;
     board.advance_mcycle();
 }
 
 pub fn ld_hl_sp_r8<B: Board>(cpu: &mut CPU, board: &mut B) {
     let offset = unsafe { std::mem::transmute::<u8, i8>(cpu.read8i(board)) } as i32;
-    let sp = cpu.reg.sp() as i32;
+    let sp = cpu.reg.sp as i32;
 
-    *cpu.reg.hl_mut() = (sp + offset) as u16;
+    cpu.reg.hl = (sp + offset) as u16;
 
-    cpu.reg.flags_mut().remove(Flags::Z | Flags::N);
+    cpu.reg.flags.remove(Flags::Z | Flags::N);
     cpu.reg
-        .flags_mut()
+        .flags
         .set(Flags::H, (sp & 0xF) + (offset & 0xF) > 0xF);
     cpu.reg
-        .flags_mut()
+        .flags
         .set(Flags::C, (sp & 0xFF) + (offset & 0xFF) > 0xFF);
 
     board.advance_mcycle();
 }
 
 pub fn rlca(cpu: &mut CPU) {
-    let old = cpu.reg.r8(R8::A);
+    let old = cpu.reg.get_r8(R8::A);
+    cpu.reg.set_r8(R8::A, old.rotate_left(1));
 
-    *cpu.reg.r8_mut(R8::A) = old.rotate_left(1);
-
-    cpu.reg.flags_mut().remove(Flags::Z | Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(7));
+    cpu.reg.flags.remove(Flags::Z | Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(7));
 }
 
 pub fn rrca(cpu: &mut CPU) {
-    let old = cpu.reg.r8(R8::A);
+    let old = cpu.reg.get_r8(R8::A);
 
-    *cpu.reg.r8_mut(R8::A) = old.rotate_right(1);
+    cpu.reg.set_r8(R8::A, old.rotate_right(1));
 
-    cpu.reg.flags_mut().remove(Flags::Z | Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(0));
+    cpu.reg.flags.remove(Flags::Z | Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(0));
 }
 
 pub fn rla(cpu: &mut CPU) {
-    let old = cpu.reg.r8(R8::A);
+    let old = cpu.reg.get_r8(R8::A);
     let new = (old << 1)
-        + if cpu.reg.flags().contains(Flags::C) {
+        + if cpu.reg.flags.contains(Flags::C) {
             1
         } else {
             0
         };
 
-    *cpu.reg.r8_mut(R8::A) = new;
+    cpu.reg.set_r8(R8::A, new);
 
-    cpu.reg.flags_mut().remove(Flags::Z | Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(7));
+    cpu.reg.flags.remove(Flags::Z | Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(7));
 }
 
 pub fn rra(cpu: &mut CPU) {
-    let old = cpu.reg.r8(R8::A);
+    let old = cpu.reg.get_r8(R8::A);
     let new = (old >> 1)
-        + if cpu.reg.flags().contains(Flags::C) {
+        + if cpu.reg.flags.contains(Flags::C) {
             0b_1000_0000
         } else {
             0
         };
 
-    *cpu.reg.r8_mut(R8::A) = new;
+    cpu.reg.set_r8(R8::A, new);
 
-    cpu.reg.flags_mut().remove(Flags::Z | Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(0));
+    cpu.reg.flags.remove(Flags::Z | Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(0));
 }
 
 pub fn cpl(cpu: &mut CPU) {
-    *cpu.reg.r8_mut(R8::A) = !cpu.reg.r8(R8::A);
-    cpu.reg.flags_mut().insert(Flags::N | Flags::H);
+    cpu.reg.set_r8(R8::A, !cpu.reg.get_r8(R8::A));
+    cpu.reg.flags.insert(Flags::N | Flags::H);
 }
 
 pub fn scf(cpu: &mut CPU) {
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
-    cpu.reg.flags_mut().insert(Flags::C);
+    cpu.reg.flags.remove(Flags::N | Flags::H);
+    cpu.reg.flags.insert(Flags::C);
 }
 
 pub fn ccf(cpu: &mut CPU) {
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
-    cpu.reg.flags_mut().toggle(Flags::C);
+    cpu.reg.flags.remove(Flags::N | Flags::H);
+    cpu.reg.flags.toggle(Flags::C);
 }
 
 pub fn jr_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
     let offset = cpu.read8i(board) as i8;
 
     if cond {
-        *cpu.reg.pc_mut() = cpu.reg.pc().wrapping_add(offset as u16);
+        cpu.reg.pc = cpu.reg.pc.wrapping_add(offset as u16);
 
-        board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.pc()));
+        board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.pc));
 
         board.advance_mcycle();
     } else {
-        board.push_cpu_evt(CpuEvt::SkipJmpTo(cpu.reg.pc().wrapping_add(offset as u16)));
+        board.push_cpu_evt(CpuEvt::SkipJmpTo(cpu.reg.pc.wrapping_add(offset as u16)));
     }
 }
 
@@ -126,7 +125,7 @@ pub fn jp_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
     let target = cpu.read16i(board);
 
     if cond {
-        *cpu.reg.pc_mut() = target;
+        cpu.reg.pc = target;
 
         board.push_cpu_evt(CpuEvt::TakeJmpTo(target));
 
@@ -137,32 +136,30 @@ pub fn jp_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
 }
 
 pub fn jp_hl<B: Board>(cpu: &mut CPU, board: &mut B) {
-    *cpu.reg.pc_mut() = cpu.reg.hl();
+    cpu.reg.pc = cpu.reg.hl;
 
-    board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.hl()));
+    board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.hl));
 }
 
 pub fn pop<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
-    *cpu.reg.r16_mut(rr) = board.read16(cpu.reg.sp());
-    *cpu.reg.sp_mut() = cpu.reg.sp().wrapping_add(2);
+    cpu.reg.set_r16(rr, board.read16(cpu.reg.sp));
+    cpu.reg.sp = cpu.reg.sp.wrapping_add(2);
 }
 
 pub fn pop_af<B: Board>(cpu: &mut CPU, board: &mut B) {
-    // The lower four bits of the flag register will always be 0, no matter
-    // what you pop into them
-    *cpu.reg.r16_mut(R16::AF) = board.read16(cpu.reg.sp()) & 0xFFF0;
-    *cpu.reg.sp_mut() = cpu.reg.sp().wrapping_add(2);
+    cpu.reg.set_r16(R16::AF, board.read16(cpu.reg.sp));
+    cpu.reg.sp = cpu.reg.sp.wrapping_add(2);
 }
 
 pub fn push<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
-    *cpu.reg.sp_mut() = cpu.reg.sp().wrapping_sub(2);
+    cpu.reg.sp = cpu.reg.sp.wrapping_sub(2);
     board.advance_mcycle();
-    board.write16(cpu.reg.r16(R16::SP), cpu.reg.r16(rr));
+    board.write16(cpu.reg.sp, cpu.reg.get_r16(rr));
 }
 
 pub fn rst<B: Board>(cpu: &mut CPU, board: &mut B, target: u16) {
     push(cpu, board, R16::PC);
-    *cpu.reg.pc_mut() = target;
+    cpu.reg.pc = target;
 
     board.push_cpu_evt(CpuEvt::TakeJmpTo(target));
 }
@@ -175,7 +172,7 @@ pub fn ret<B: Board>(cpu: &mut CPU, board: &mut B, enable_ime: bool) {
         cpu.set_ime(board, true);
     }
 
-    board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.pc()));
+    board.push_cpu_evt(CpuEvt::TakeJmpTo(cpu.reg.pc));
 
     board.advance_mcycle();
 }
@@ -188,7 +185,7 @@ pub fn ret_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
         ret(cpu, board, false);
     } else {
         // It's really important that this is an *instant* read, since it's only a debug thingy
-        board.push_cpu_evt(CpuEvt::SkipJmpTo(board.read16_instant(cpu.reg.sp())));
+        board.push_cpu_evt(CpuEvt::SkipJmpTo(board.read16_instant(cpu.reg.sp)));
     }
 }
 
@@ -197,7 +194,7 @@ pub fn call_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
 
     if cond {
         push(cpu, board, R16::PC);
-        *cpu.reg.pc_mut() = target;
+        cpu.reg.pc = target;
 
         board.push_cpu_evt(CpuEvt::TakeJmpTo(target));
     } else {
@@ -206,34 +203,34 @@ pub fn call_cond<B: Board>(cpu: &mut CPU, board: &mut B, cond: bool) {
 }
 
 pub fn add_hl_rr<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
-    let old = cpu.reg.hl();
-    let addend = cpu.reg.r16(rr);
+    let old = cpu.reg.hl;
+    let addend = cpu.reg.get_r16(rr);
 
     let (new, carry) = old.overflowing_add(addend);
 
-    *cpu.reg.hl_mut() = new;
+    cpu.reg.hl = new;
 
-    cpu.reg.flags_mut().remove(Flags::N);
+    cpu.reg.flags.remove(Flags::N);
     cpu.reg
-        .flags_mut()
+        .flags
         .set(Flags::H, (old & 0x0FFF) + (addend & 0x0FFF) > 0x0FFF);
-    cpu.reg.flags_mut().set(Flags::C, carry);
+    cpu.reg.flags.set(Flags::C, carry);
 
     board.advance_mcycle();
 }
 
 pub fn add_sp_r8<B: Board>(cpu: &mut CPU, board: &mut B) {
     let offset = unsafe { std::mem::transmute::<u8, i8>(cpu.read8i(board)) } as i32;
-    let old = cpu.reg.sp() as i32;
+    let old = cpu.reg.sp as i32;
 
-    *cpu.reg.sp_mut() = (old + offset) as u16;
+    cpu.reg.sp = (old + offset) as u16;
 
-    cpu.reg.flags_mut().remove(Flags::Z | Flags::N);
+    cpu.reg.flags.remove(Flags::Z | Flags::N);
     cpu.reg
-        .flags_mut()
+        .flags
         .set(Flags::H, (old & 0xF) + (offset & 0xF) > 0xF);
     cpu.reg
-        .flags_mut()
+        .flags
         .set(Flags::C, (old & 0xFF) + (offset & 0xFF) > 0xFF);
 
     board.advance_mcycle();
@@ -241,12 +238,12 @@ pub fn add_sp_r8<B: Board>(cpu: &mut CPU, board: &mut B) {
 }
 
 pub fn inc_rr<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
-    *cpu.reg.r16_mut(rr) = cpu.reg.r16(rr).wrapping_add(1);
+    cpu.reg.set_r16(rr, cpu.reg.get_r16(rr).wrapping_add(1));
     board.advance_mcycle();
 }
 
 pub fn dec_rr<B: Board>(cpu: &mut CPU, board: &mut B, rr: R16) {
-    *cpu.reg.r16_mut(rr) = cpu.reg.r16(rr).wrapping_sub(1);
+    cpu.reg.set_r16(rr, cpu.reg.get_r16(rr).wrapping_sub(1));
     board.advance_mcycle();
 }
 
@@ -256,9 +253,9 @@ pub fn inc8<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, targe
 
     target.write(cpu, board, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N);
-    cpu.reg.flags_mut().set(Flags::H, (old & 0x0f) == 0x0f);
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N);
+    cpu.reg.flags.set(Flags::H, (old & 0x0f) == 0x0f);
 }
 
 pub fn dec8<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
@@ -267,30 +264,30 @@ pub fn dec8<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, targe
 
     target.write(cpu, board, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().insert(Flags::N);
-    cpu.reg.flags_mut().set(Flags::H, (new & 0x0f) == 0x0f);
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.insert(Flags::N);
+    cpu.reg.flags.set(Flags::H, (new & 0x0f) == 0x0f);
 }
 
 pub fn add8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
-    let old = cpu.reg.r8(R8::A);
+    let old = cpu.reg.get_r8(R8::A);
     let addend = src.read(cpu, board);
     let (new, carry) = old.overflowing_add(addend);
 
-    *cpu.reg.r8_mut(R8::A) = new;
+    cpu.reg.set_r8(R8::A, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N);
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N);
     cpu.reg
-        .flags_mut()
+        .flags
         .set(Flags::H, (old & 0x0f) + (addend & 0x0f) > 0x0f);
-    cpu.reg.flags_mut().set(Flags::C, carry);
+    cpu.reg.flags.set(Flags::C, carry);
 }
 
 pub fn adc8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
-    let old = cpu.reg.r8(R8::A) as u16;
+    let old = cpu.reg.get_r8(R8::A) as u16;
     let addend = src.read(cpu, board) as u16;
-    let carry_val = if cpu.reg.flags().contains(Flags::C) {
+    let carry_val = if cpu.reg.flags.contains(Flags::C) {
         1
     } else {
         0
@@ -298,25 +295,26 @@ pub fn adc8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
     let sum = old + addend + carry_val;
     let new = (sum & 0xff) as u8;
 
-    *cpu.reg.r8_mut(R8::A) = new;
+    cpu.reg.set_r8(R8::A, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
+    cpu.reg.flags.set(Flags::Z, new == 0);
     cpu.reg
-        .flags_mut()
+        .flags
         .set(Flags::H, (old & 0x0f) + (addend & 0x0f) + carry_val > 0x0f);
-    cpu.reg.flags_mut().set(Flags::C, sum > 0xff);
-    cpu.reg.flags_mut().remove(Flags::N);
+    cpu.reg.flags.set(Flags::C, sum > 0xff);
+    cpu.reg.flags.remove(Flags::N);
 }
 
 pub fn sub8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
-    *cpu.reg.r8_mut(R8::A) = cp8(cpu, board, src);
+    let a_sub_src = cp8(cpu, board, src);
+    cpu.reg.set_r8(R8::A, a_sub_src);
 }
 
 pub fn sbc8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
     // The bit magic gets a bit easier when we convert stuff to i16
-    let old = cpu.reg.r8(R8::A) as i16;
+    let old = cpu.reg.get_r8(R8::A) as i16;
     let subtrahend = src.read(cpu, board) as i16;
-    let carry_val = if cpu.reg.flags().contains(Flags::C) {
+    let carry_val = if cpu.reg.flags.contains(Flags::C) {
         1
     } else {
         0
@@ -324,58 +322,59 @@ pub fn sbc8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
 
     let new = old - subtrahend - carry_val;
 
-    *cpu.reg.r8_mut(R8::A) = new as u8;
+    cpu.reg.set_r8(R8::A, new as u8);
 
-    cpu.reg.flags_mut().set(Flags::Z, new & 0xff == 0);
-    cpu.reg.flags_mut().insert(Flags::N);
+    cpu.reg.flags.set(Flags::Z, new & 0xff == 0);
+    cpu.reg.flags.insert(Flags::N);
     cpu.reg
-        .flags_mut()
+        .flags
         .set(Flags::H, (old & 0xf) < (subtrahend & 0xf) + carry_val);
-    cpu.reg.flags_mut().set(Flags::C, new < 0);
+    cpu.reg.flags.set(Flags::C, new < 0);
 }
 
+// Returns a - src, useful for implementing sub8
 pub fn cp8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) -> u8 {
-    let old = cpu.reg.r8(R8::A);
+    let old = cpu.reg.get_r8(R8::A);
     let subtrahend = src.read(cpu, board);
 
     let (new, carry) = old.overflowing_sub(subtrahend);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().insert(Flags::N);
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.insert(Flags::N);
     cpu.reg
-        .flags_mut()
+        .flags
         .set(Flags::H, (old & 0x0f) < (subtrahend & 0x0f));
-    cpu.reg.flags_mut().set(Flags::C, carry);
+    cpu.reg.flags.set(Flags::C, carry);
 
     new
 }
 
 pub fn and8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
-    let new = cpu.reg.r8(R8::A) & src.read(cpu, board);
+    let new = cpu.reg.get_r8(R8::A) & src.read(cpu, board);
 
-    *cpu.reg.r8_mut(R8::A) = new;
+    cpu.reg.set_r8(R8::A, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::C);
-    cpu.reg.flags_mut().insert(Flags::H);
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::C);
+    cpu.reg.flags.insert(Flags::H);
 }
 
 pub fn xor8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
-    let new = cpu.reg.r8(R8::A) ^ src.read(cpu, board);
+    let new = cpu.reg.get_r8(R8::A) ^ src.read(cpu, board);
 
-    *cpu.reg.r8_mut(R8::A) = new;
+    cpu.reg.set_r8(R8::A, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H | Flags::C);
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H | Flags::C);
 }
 
 pub fn or8<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, src: S) {
-    let new = cpu.reg.r8(R8::A) | src.read(cpu, board);
+    let new = cpu.reg.get_r8(R8::A) | src.read(cpu, board);
 
-    *cpu.reg.r8_mut(R8::A) = new;
+    cpu.reg.set_r8(R8::A, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H | Flags::C);
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H | Flags::C);
 }
 
 // CB prefixed Instructions
@@ -384,24 +383,24 @@ pub fn rlc<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target
     let old = target.read(cpu, board);
     target.write(cpu, board, old.rotate_left(1));
 
-    cpu.reg.flags_mut().set(Flags::Z, old == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(7));
+    cpu.reg.flags.set(Flags::Z, old == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(7));
 }
 
 pub fn rrc<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     target.write(cpu, board, old.rotate_right(1));
 
-    cpu.reg.flags_mut().set(Flags::Z, old == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(0))
+    cpu.reg.flags.set(Flags::Z, old == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(0))
 }
 
 pub fn rl<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     let new = (old << 1)
-        + if cpu.reg.flags().contains(Flags::C) {
+        + if cpu.reg.flags.contains(Flags::C) {
             1
         } else {
             0
@@ -409,15 +408,15 @@ pub fn rl<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target:
 
     target.write(cpu, board, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(7));
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(7));
 }
 
 pub fn rr<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     let new = (old >> 1)
-        + if cpu.reg.flags().contains(Flags::C) {
+        + if cpu.reg.flags.contains(Flags::C) {
             0b_1000_0000
         } else {
             0
@@ -425,9 +424,9 @@ pub fn rr<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target:
 
     target.write(cpu, board, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(0));
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(0));
 }
 
 pub fn sla<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
@@ -436,9 +435,9 @@ pub fn sla<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target
 
     target.write(cpu, board, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(7));
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(7));
 }
 
 pub fn sra<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
@@ -447,17 +446,17 @@ pub fn sra<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target
 
     target.write(cpu, board, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(0));
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(0));
 }
 
 pub fn swap<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
     let old = target.read(cpu, board);
     target.write(cpu, board, (old >> 4) + (old << 4));
 
-    cpu.reg.flags_mut().set(Flags::Z, old == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H | Flags::C);
+    cpu.reg.flags.set(Flags::Z, old == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H | Flags::C);
 }
 
 pub fn srl<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target: T) {
@@ -466,16 +465,16 @@ pub fn srl<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, target
 
     target.write(cpu, board, new);
 
-    cpu.reg.flags_mut().set(Flags::Z, new == 0);
-    cpu.reg.flags_mut().remove(Flags::N | Flags::H);
-    cpu.reg.flags_mut().set(Flags::C, old.bit(0));
+    cpu.reg.flags.set(Flags::Z, new == 0);
+    cpu.reg.flags.remove(Flags::N | Flags::H);
+    cpu.reg.flags.set(Flags::C, old.bit(0));
 }
 
 pub fn bit<B: Board, S: Src8>(cpu: &mut CPU, board: &mut B, bit: u8, src: S) {
     let bit_set = src.read(cpu, board).bit(bit);
-    cpu.reg.flags_mut().set(Flags::Z, !bit_set);
-    cpu.reg.flags_mut().remove(Flags::N);
-    cpu.reg.flags_mut().insert(Flags::H);
+    cpu.reg.flags.set(Flags::Z, !bit_set);
+    cpu.reg.flags.remove(Flags::N);
+    cpu.reg.flags.insert(Flags::H);
 }
 
 pub fn res<B: Board, T: Src8 + Dst8 + Copy>(cpu: &mut CPU, board: &mut B, bit: u8, target: T) {
@@ -492,31 +491,31 @@ pub fn daa(cpu: &mut CPU) {
     // DAA is kind of infamous for having complicated behaviour
     // This is why I took the source code from https://forums.nesdev.com/viewtopic.php?t=15944
 
-    let mut new = cpu.reg.r8(R8::A);
+    let mut new = cpu.reg.get_r8(R8::A);
 
     // note: assumes a is a uint8_t and wraps from 0xff to 0
-    if !cpu.reg.flags().contains(Flags::N) {
+    if !cpu.reg.flags.contains(Flags::N) {
         // after an addition, adjust if (half-)carry occurred or if result is out of bounds
-        if cpu.reg.flags().contains(Flags::C) || new > 0x99 {
+        if cpu.reg.flags.contains(Flags::C) || new > 0x99 {
             new = new.wrapping_add(0x60);
-            cpu.reg.flags_mut().insert(Flags::C);
+            cpu.reg.flags.insert(Flags::C);
         }
-        if cpu.reg.flags().contains(Flags::H) || (new & 0x0f) > 0x09 {
+        if cpu.reg.flags.contains(Flags::H) || (new & 0x0f) > 0x09 {
             new = new.wrapping_add(0x6);
         }
     } else {
         // after a subtraction, only adjust if (half-)carry occurred
-        if cpu.reg.flags().contains(Flags::C) {
+        if cpu.reg.flags.contains(Flags::C) {
             new = new.wrapping_sub(0x60);
         }
-        if cpu.reg.flags().contains(Flags::H) {
+        if cpu.reg.flags.contains(Flags::H) {
             new = new.wrapping_sub(0x6);
         }
     };
 
-    *cpu.reg.r8_mut(R8::A) = new;
+    cpu.reg.set_r8(R8::A, new);
 
     // these flags are always updated
-    cpu.reg.flags_mut().set(Flags::Z, new == 0); // the usual z flag
-    cpu.reg.flags_mut().remove(Flags::H); // h flag is always cleared
+    cpu.reg.flags.set(Flags::Z, new == 0); // the usual z flag
+    cpu.reg.flags.remove(Flags::H); // h flag is always cleared
 }

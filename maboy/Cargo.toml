@@ -1,6 +1,6 @@
 [package]
 name = "maboy"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Markus Webel <m@rkus.online>"]
 edition = "2018"
 
@@ -13,6 +13,6 @@ bitflags = "1.2"
 fixedbitset = "0.3"
 num_enum = "0.4"
 
-# Only keep this as long as we have the ugly CLI debugger
+# TODO: Only keep this as long as we have the CLI debugger instead of a solid debug API
 console = { version = "0.11", features = [] }
 parse_int = "0.4"

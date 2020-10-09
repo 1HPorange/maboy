@@ -57,7 +57,7 @@ impl Src8 for HighRamOperand {
     fn read<B: Board>(self, cpu: &mut CPU, board: &mut B) -> u8 {
         let offset = match self {
             HighRamOperand::Imm8 => cpu.read8i(board) as u16,
-            HighRamOperand::C => cpu.reg.r8(R8::C) as u16,
+            HighRamOperand::C => cpu.reg.get_r8(R8::C) as u16,
         };
 
         board.read8(offset.wrapping_add(0xFF00))
@@ -68,7 +68,7 @@ impl Dst8 for HighRamOperand {
     fn write<B: Board>(self, cpu: &mut CPU, board: &mut B, val: u8) {
         let offset = match self {
             HighRamOperand::Imm8 => cpu.read8i(board) as u16,
-            HighRamOperand::C => cpu.reg.r8(R8::C) as u16,
+            HighRamOperand::C => cpu.reg.get_r8(R8::C) as u16,
         };
 
         board.write8(offset.wrapping_add(0xFF00), val);
@@ -79,13 +79,13 @@ impl Src8 for HlOperand {
     fn read<B: Board>(self, cpu: &mut CPU, board: &mut B) -> u8 {
         match self {
             HlOperand::HLi => {
-                let result = board.read8(cpu.reg.r16(R16::HL));
-                *cpu.reg.r16_mut(R16::HL) = cpu.reg.r16(R16::HL).wrapping_add(1);
+                let result = board.read8(cpu.reg.hl);
+                cpu.reg.hl = cpu.reg.hl.wrapping_add(1);
                 result
             }
             HlOperand::HLd => {
-                let result = board.read8(cpu.reg.r16(R16::HL));
-                *cpu.reg.r16_mut(R16::HL) = cpu.reg.r16(R16::HL).wrapping_sub(1);
+                let result = board.read8(cpu.reg.hl);
+                cpu.reg.hl = cpu.reg.hl.wrapping_sub(1);
                 result
             }
         }
@@ -96,12 +96,12 @@ impl Dst8 for HlOperand {
     fn write<B: Board>(self, cpu: &mut CPU, board: &mut B, val: u8) {
         match self {
             HlOperand::HLi => {
-                board.write8(cpu.reg.r16(R16::HL), val);
-                *cpu.reg.r16_mut(R16::HL) = cpu.reg.r16(R16::HL).wrapping_add(1);
+                board.write8(cpu.reg.hl, val);
+                cpu.reg.hl = cpu.reg.hl.wrapping_add(1);
             }
             HlOperand::HLd => {
-                board.write8(cpu.reg.r16(R16::HL), val);
-                *cpu.reg.r16_mut(R16::HL) = cpu.reg.r16(R16::HL).wrapping_sub(1);
+                board.write8(cpu.reg.hl, val);
+                cpu.reg.hl = cpu.reg.hl.wrapping_sub(1);
             }
         }
     }
@@ -109,25 +109,25 @@ impl Dst8 for HlOperand {
 
 impl Src8 for R8 {
     fn read<B: Board>(self, cpu: &mut CPU, _board: &mut B) -> u8 {
-        cpu.reg.r8(self)
+        cpu.reg.get_r8(self)
     }
 }
 
 impl Dst8 for R8 {
     fn write<B: Board>(self, cpu: &mut CPU, _board: &mut B, val: u8) {
-        *cpu.reg.r8_mut(self) = val;
+        cpu.reg.set_r8(self, val);
     }
 }
 
 impl Src8 for R16 {
     fn read<B: Board>(self, cpu: &mut CPU, board: &mut B) -> u8 {
-        board.read8(cpu.reg.r16(self))
+        board.read8(cpu.reg.get_r16(self))
     }
 }
 
 impl Dst8 for R16 {
     fn write<B: Board>(self, cpu: &mut CPU, board: &mut B, val: u8) {
-        board.write8(cpu.reg.r16(self), val);
+        board.write8(cpu.reg.get_r16(self), val);
     }
 }
 

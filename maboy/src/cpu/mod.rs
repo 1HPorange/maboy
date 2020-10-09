@@ -91,23 +91,22 @@ impl CPU {
     }
 
     fn fetch_exec<B: Board>(&mut self, board: &mut B) {
-        let instr_pc = self.reg.pc();
         let instr = self.prefetch(board);
-        board.push_cpu_evt(CpuEvt::Exec(instr_pc, instr));
+        board.push_cpu_evt(CpuEvt::Exec(self.reg.pc, instr));
         self.execute(board, instr);
     }
 
     /// Reads 8 bits of immediate data and increments PC. Consumes cycles.
     fn read8i<B: Board>(&mut self, board: &mut B) -> u8 {
-        let result = board.read8(self.reg.r16(R16::PC));
-        *self.reg.r16_mut(R16::PC) = self.reg.r16(R16::PC).wrapping_add(1);
+        let result = board.read8(self.reg.pc);
+        self.reg.pc = self.reg.pc.wrapping_add(1);
         result
     }
 
     /// Read 16 bits of immediate data (little endian) and increments PC twice. Consume cycles.
     fn read16i<B: Board>(&mut self, board: &mut B) -> u16 {
-        let result = board.read16(self.reg.r16(R16::PC));
-        *self.reg.r16_mut(R16::PC) = self.reg.r16(R16::PC).wrapping_add(2);
+        let result = board.read16(self.reg.pc);
+        self.reg.pc = self.reg.pc.wrapping_add(2);
         result
     }
 
@@ -130,7 +129,7 @@ impl CPU {
         board.advance_mcycle(); // 1st mcycle
 
         push(self, board, R16::PC); // 2,3,4th mcycle
-        *self.reg.pc_mut() = match interrupt {
+        self.reg.pc = match interrupt {
             Interrupt::VBlank => 0x40,
             Interrupt::LcdStat => 0x48,
             Interrupt::Timer => 0x50,
@@ -150,7 +149,7 @@ impl CPU {
         match halt_state {
             HaltState::Halted => (),
             HaltState::Running => (),
-            _ => unimplemented!("{:?} @ PC {:#06X}", halt_state, self.reg.pc()),
+            _ => unimplemented!("{:?} @ PC {:#06X}", halt_state, self.reg.pc),
         }
     }
 
@@ -213,7 +212,7 @@ impl CPU {
             DEC_E => dec8(self, board, E),
             LD_E_d8 => ld8(self, board, E, Imm8),
             RRA => rra(self),
-            JR_NZ_r8 => jr_cond(self, board, !self.reg.flags().contains(Flags::Z)),
+            JR_NZ_r8 => jr_cond(self, board, !self.reg.flags.contains(Flags::Z)),
             LD_HL_d16 => ld_rr_d16(self, board, HL),
             LD_xHLix_A => ld8(self, board, HLi, A),
             INC_HL => inc_rr(self, board, HL),
@@ -221,7 +220,7 @@ impl CPU {
             DEC_H => dec8(self, board, H),
             LD_H_d8 => ld8(self, board, H, Imm8),
             DAA => daa(self),
-            JR_Z_r8 => jr_cond(self, board, self.reg.flags().contains(Flags::Z)),
+            JR_Z_r8 => jr_cond(self, board, self.reg.flags.contains(Flags::Z)),
             ADD_HL_HL => add_hl_rr(self, board, HL),
             LD_A_xHLix => ld8(self, board, A, HLi),
             DEC_HL => dec_rr(self, board, HL),
@@ -229,7 +228,7 @@ impl CPU {
             DEC_L => dec8(self, board, L),
             LD_L_d8 => ld8(self, board, L, Imm8),
             CPL => cpl(self),
-            JR_NC_r8 => jr_cond(self, board, !self.reg.flags().contains(Flags::C)),
+            JR_NC_r8 => jr_cond(self, board, !self.reg.flags.contains(Flags::C)),
             LD_SP_d16 => ld_rr_d16(self, board, SP),
             LD_xHLdx_A => ld8(self, board, HLd, A),
             INC_SP => inc_rr(self, board, SP),
@@ -237,7 +236,7 @@ impl CPU {
             DEC_xHLx => dec8(self, board, HL),
             LD_xHLx_d8 => ld8(self, board, HL, Imm8),
             SCF => scf(self),
-            JR_C_r8 => jr_cond(self, board, self.reg.flags().contains(Flags::C)),
+            JR_C_r8 => jr_cond(self, board, self.reg.flags.contains(Flags::C)),
             ADD_HL_SP => add_hl_rr(self, board, SP),
             LD_A_xHLdx => ld8(self, board, A, HLd),
             DEC_SP => dec_rr(self, board, SP),
@@ -373,35 +372,35 @@ impl CPU {
             CP_L => drop(cp8(self, board, L)),
             CP_xHLx => drop(cp8(self, board, HL)),
             CP_A => drop(cp8(self, board, A)),
-            RET_NZ => ret_cond(self, board, !self.reg.flags().contains(Flags::Z)),
+            RET_NZ => ret_cond(self, board, !self.reg.flags.contains(Flags::Z)),
             POP_BC => pop(self, board, BC),
-            JP_NZ_a16 => jp_cond(self, board, !self.reg.flags().contains(Flags::Z)),
+            JP_NZ_a16 => jp_cond(self, board, !self.reg.flags.contains(Flags::Z)),
             JP_a16 => jp_cond(self, board, true),
-            CALL_NZ_a16 => call_cond(self, board, !self.reg.flags().contains(Flags::Z)),
+            CALL_NZ_a16 => call_cond(self, board, !self.reg.flags.contains(Flags::Z)),
             PUSH_BC => push(self, board, BC),
             ADD_A_d8 => add8(self, board, Imm8),
             RST_00H => rst(self, board, 0x00),
-            RET_Z => ret_cond(self, board, self.reg.flags().contains(Flags::Z)),
+            RET_Z => ret_cond(self, board, self.reg.flags.contains(Flags::Z)),
             RET => ret(self, board, false),
-            JP_Z_a16 => jp_cond(self, board, self.reg.flags().contains(Flags::Z)),
+            JP_Z_a16 => jp_cond(self, board, self.reg.flags.contains(Flags::Z)),
             PREFIX_CB => self.fetch_execute_cb(board),
-            CALL_Z_a16 => call_cond(self, board, self.reg.flags().contains(Flags::Z)),
+            CALL_Z_a16 => call_cond(self, board, self.reg.flags.contains(Flags::Z)),
             CALL_a16 => call_cond(self, board, true),
             ADC_A_d8 => adc8(self, board, Imm8),
             RST_08H => rst(self, board, 0x08),
-            RET_NC => ret_cond(self, board, !self.reg.flags().contains(Flags::C)),
+            RET_NC => ret_cond(self, board, !self.reg.flags.contains(Flags::C)),
             POP_DE => pop(self, board, DE),
-            JP_NC_a16 => jp_cond(self, board, !self.reg.flags().contains(Flags::C)),
+            JP_NC_a16 => jp_cond(self, board, !self.reg.flags.contains(Flags::C)),
             NOT_USED => self.set_halt_state(board, HaltState::Stuck),
-            CALL_NC_a16 => call_cond(self, board, !self.reg.flags().contains(Flags::C)),
+            CALL_NC_a16 => call_cond(self, board, !self.reg.flags.contains(Flags::C)),
             PUSH_DE => push(self, board, DE),
             SUB_d8 => sub8(self, board, Imm8),
             RST_10H => rst(self, board, 0x10),
-            RET_C => ret_cond(self, board, self.reg.flags().contains(Flags::C)),
+            RET_C => ret_cond(self, board, self.reg.flags.contains(Flags::C)),
             RETI => ret(self, board, true),
-            JP_C_a16 => jp_cond(self, board, self.reg.flags().contains(Flags::C)),
+            JP_C_a16 => jp_cond(self, board, self.reg.flags.contains(Flags::C)),
             NOT_USED_0 => self.set_halt_state(board, HaltState::Stuck),
-            CALL_C_a16 => call_cond(self, board, self.reg.flags().contains(Flags::C)),
+            CALL_C_a16 => call_cond(self, board, self.reg.flags.contains(Flags::C)),
             NOT_USED_1 => self.set_halt_state(board, HaltState::Stuck),
             SBC_A_d8 => sbc8(self, board, Imm8),
             RST_18H => rst(self, board, 0x18),
