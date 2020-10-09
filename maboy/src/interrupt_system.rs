@@ -62,6 +62,7 @@ impl InterruptSystem {
         unsafe {
             for bit in 0..5 {
                 if request.bit(bit) {
+                    // This transmute will always result in a valid enum variant, so this is safe
                     return Some(std::mem::transmute(1u8 << bit));
                 }
             }

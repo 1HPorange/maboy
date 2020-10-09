@@ -50,6 +50,7 @@ impl OperandType {
                 (pc.wrapping_add(offset as u16)).fmt_addr()
             }
             OperandType::PrefixInstr => {
+                // Safe transmute because every u8 represents a valid enum variant
                 let instr: CBByteInstr =
                     unsafe { std::mem::transmute(board.read8_instant(Addr::from(pc))) };
                 style(format!("{:?}", instr)).blue()

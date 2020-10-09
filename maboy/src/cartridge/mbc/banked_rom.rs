@@ -15,7 +15,8 @@ impl BankedRom {
     pub fn new(rom: Box<[u8]>) -> Self {
         let rom = Pin::new(rom);
 
-        // Forgets about the lifetime of our slice
+        // Forgets about the lifetime of our slice. This is safe because it is pinned and also
+        // lives inside of self
         let mapped_bank = Some(unsafe { std::mem::transmute(&rom[0x4000..]) });
 
         Self { rom, mapped_bank }
@@ -28,6 +29,8 @@ impl BankedRom {
 
         self.mapped_bank = if self.rom.len() >= bank_idx + 0x4000 {
             log::debug!("Switched to ROM bank {}", bank);
+            // Forgets the lifetime of the slice. Safe because we the referenced memory
+            // is pinned and lives inside self
             Some(unsafe { std::mem::transmute(&self.rom[bank_idx..]) })
         } else {
             log::warn!("Attempted to switch to non-existent ROM bank {}", bank);

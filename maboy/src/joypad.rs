@@ -71,7 +71,7 @@ impl JoyPad {
             0b_0001_0000 => ActiveButtonGroup::General,
             0b_0010_0000 => ActiveButtonGroup::Directional,
             0b_0011_0000 => ActiveButtonGroup::Neither,
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => unreachable!(),
         }
     }
 

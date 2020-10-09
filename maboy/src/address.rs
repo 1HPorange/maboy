@@ -194,7 +194,7 @@ impl From<u16> for Addr {
                     Mem(ECHO(addr - 0xE000))
                 }
             }
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => unreachable!(),
         }
     }
 }

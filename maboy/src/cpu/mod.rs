@@ -150,7 +150,7 @@ impl CPU {
         match halt_state {
             HaltState::Halted => (),
             HaltState::Running => (),
-            _ => unimplemented!("{:?}", halt_state),
+            _ => unimplemented!("{:?} @ PC {:#06X}", halt_state, self.reg.pc()),
         }
     }
 
@@ -165,10 +165,12 @@ impl CPU {
     }
 
     fn prefetch<B: Board>(&mut self, board: &mut B) -> ByteInstr {
+        // Safe since any u8 value is a valid enum variant
         unsafe { std::mem::transmute(self.read8i(board)) }
     }
 
     fn fetch_cb<B: Board>(&mut self, board: &mut B) -> CBByteInstr {
+        // Safe since any u8 value is a valid enum variant
         unsafe { std::mem::transmute(self.read8i(board)) }
     }
 

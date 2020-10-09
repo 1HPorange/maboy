@@ -43,6 +43,8 @@ impl LCDS {
     /// Mode that the CPU reads, but not necessarily representing
     /// the current internal mode of the PPU
     pub fn mode(&self) -> Mode {
+        // Safe because all possible values (0-3) correspond to existing enum variants
+        // and the enum is #[repr(u8)]
         unsafe { Mode::from_unchecked(self.0 & 0b11) }
     }
 

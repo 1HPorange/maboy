@@ -148,7 +148,7 @@ impl Timer {
             0b01 => TimaFrequency::F01,
             0b10 => TimaFrequency::F10,
             0b11 => TimaFrequency::F11,
-            _ => unsafe { std::hint::unreachable_unchecked() },
+            _ => unreachable!(),
         };
 
         if val.bit(2) {

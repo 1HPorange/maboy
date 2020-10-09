@@ -42,7 +42,16 @@ impl CartridgeDesc<'_> {
             checksum = checksum.wrapping_sub(self.0[i]).wrapping_sub(1);
         }
 
-        self.0[0x4D] == checksum
+        if self.0[0x4D] == checksum {
+            true
+        } else {
+            log::warn!(
+                "Header has incorrect checksum: {} (should be {})",
+                self.0[0x4D],
+                checksum
+            );
+            false
+        }
     }
 }
 

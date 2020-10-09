@@ -109,6 +109,7 @@ impl CpuDebugger {
         }
 
         let instr_start = emu.cpu.reg.pc();
+        // Safe transmute because every u8 represents a valid enum variant
         let instr: ByteInstr =
             unsafe { std::mem::transmute(emu.board.read8_instant(Addr::from(instr_start))) };
         let instr_end =
@@ -367,6 +368,7 @@ impl CpuDebugger {
         .unwrap();
 
         let mut pc = cpu.reg.pc();
+        // Safe transmute because every u8 represents a valid enum variant
         let instr: ByteInstr =
             unsafe { std::mem::transmute(board.read8_instant(Addr::from(cpu.reg.pc()))) };
 
@@ -377,6 +379,7 @@ impl CpuDebugger {
         }
 
         for _ in 0..10 {
+            // Safe transmute because every u8 represents a valid enum variant
             let instr: ByteInstr =
                 unsafe { std::mem::transmute(board.read8_instant(Addr::from(pc))) };
 

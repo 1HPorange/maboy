@@ -1,4 +1,4 @@
-# MaBoy GameBoy Emulator
+# MaBoy Game Boy Emulator
 
 MaBoy is a fast and (mostly) accurate emulator for the original Game Boy (and Game Boy Pocket). Currently, it works only on Windows.
 
@@ -82,8 +82,3 @@ bp clear
 ## Savegames
 
 Savegames are automatically detected if they sit in the same folder as the game. If no savegame is present, it is automatically created (if the cartridge supports it).
-
-## Known Issues
-
-- The emulator will happily start Game Boy Color games, even though they might crash later
-- Pokemon Red displays visual artifacts when starting the game, but otherwise works.

@@ -2,6 +2,7 @@
 
 /// A greyscale color value guaranteed to be in the range 0..4 (exclusive)
 #[derive(Copy, Clone)]
+#[repr(transparent)]
 pub struct Color(u8);
 
 /// Colors can be converted into this enum to make matching easier. Otherwise,
@@ -34,6 +35,8 @@ impl Color {
     }
 
     pub fn into_val(self) -> ColorVal {
+        // Safe because Self is #[repr(transparent)] and can only contain u8 in the range 0-3,
+        // which are all legal enum variants
         unsafe { std::mem::transmute(self) }
     }
 

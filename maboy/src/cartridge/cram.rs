@@ -205,6 +205,9 @@ impl CartridgeRam for CRamBanked {
 
     fn try_select_bank(&mut self, bank: u8) {
         if bank < 4 {
+            // This transmute forgets the lifetime of the reference; This is safe because
+            // self actually owns the memory and has it inside a pin, so this reference
+            // will never become invalid
             self.mapped_bank =
                 unsafe { std::mem::transmute(&mut self.cram[0x2000 * bank as usize..]) };
         }
