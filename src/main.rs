@@ -108,7 +108,8 @@ fn run_emu<C: Cartridge + Savegame + Metadata>(rom_path: &str, mut cartridge: C)
     let mut last_os_update = Instant::now();
 
     // Initialize throttle clock
-    let mut os_timing = OsTiming::new(59.7)
+    // TODO: Investigate why I suddenly need a factor of 2 here. I definitely didn't need it before...
+    let mut os_timing = OsTiming::new(2.0 * 59.7)
         .expect_msg_box("Could not create OS timer. This timer is used to throttle the game.");
 
     loop {
